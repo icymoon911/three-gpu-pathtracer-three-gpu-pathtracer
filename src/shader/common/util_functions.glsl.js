@@ -83,6 +83,12 @@ export const util_functions = /* glsl */`
 
 	vec3 equirectUvToDirection( vec2 uv ) {
 
+		// Wrap horizontally so the left/right seam is seamless.
+		// Clamp vertically so samples near the poles stay on the correct hemisphere
+		// (prevents a visible seam at the top and bottom of the panorama).
+		uv.x = fract( uv.x );
+		uv.y = clamp( uv.y, 0.0, 1.0 );
+
 		// undo above adjustments
 		uv.x -= 0.5;
 		uv.y = 1.0 - uv.y;
@@ -102,7 +108,12 @@ export const util_functions = /* glsl */`
 
 		float aa = a * a;
 		float bb = b * b;
-		return aa / ( aa + bb );
+		float denom = aa + bb;
+
+		// Guard against 0/0 which produces NaN — when both PDFs are zero
+		// neither sample contributes meaningfully so return 0.
+		if ( denom == 0.0 ) return 0.0;
+		return aa / denom;
 
 	}
 

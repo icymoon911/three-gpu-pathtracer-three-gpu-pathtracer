@@ -480,6 +480,16 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 
 						gl_FragColor.rgb += directLightContribution( - ray.direction, surf, state, hitPoint );
 
+						// Prevent NaN / Inf from direct light contribution (e.g. multi-light
+						// scenes with degenerate PDFs) from propagating through the cumulative
+						// frame buffer and turning the entire image white.
+						if ( any( isnan( gl_FragColor.rgb ) ) || any( isinf( gl_FragColor.rgb ) ) ) {
+
+							gl_FragColor.rgb = vec3( 0.0 );
+							break;
+
+						}
+
 						#endif
 
 						// accumulate a roughness value to offset diffuse, specular, diffuse rays that have high contribution

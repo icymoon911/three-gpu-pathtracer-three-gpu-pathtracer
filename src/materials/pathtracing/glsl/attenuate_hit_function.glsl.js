@@ -24,7 +24,8 @@ export const attenuate_hit_function = /* glsl */`
 		color = vec3( 1.0 );
 
 		bool result = true;
-		for ( int i = 0; i < traversals; i ++ ) {
+		int i = 0;
+		for ( i = 0; i < traversals; i ++ ) {
 
 			sobolBounceIndex ++;
 
@@ -167,6 +168,17 @@ export const attenuate_hit_function = /* glsl */`
 				break;
 
 			}
+
+		}
+
+		// If the loop completed without breaking, all surfaces were transmissive
+		// and no opaque surface blocked the light. The initial value of result was
+		// true (assuming an opaque hit), so we must correct it here to avoid
+		// incorrectly blocking direct light contributions through transparent objects
+		// which manifests as black artifacts in scenes with glass + spotlights.
+		if ( i >= traversals ) {
+
+			result = false;
 
 		}
 

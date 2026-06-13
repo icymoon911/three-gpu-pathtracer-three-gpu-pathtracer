@@ -19,7 +19,13 @@ export const camera_util_functions = /* glsl */`
 		#if CAMERA_TYPE == 2
 
 			// Equirectangular projection
-			vec4 rayDirection4 = vec4( equirectUvToDirection( jitteredUv ), 0.0 );
+			// Wrap the horizontal UV so that samples that cross the left / right
+			// boundary wrap correctly instead of producing an invalid longitude.
+			// Clamp the vertical UV to [0, 1] so that samples near the poles do not
+			// cross to the opposite pole (which causes a visible seam at the top
+			// and bottom of the panorama).
+			vec2 equirectUv = vec2( fract( jitteredUv.x ), clamp( jitteredUv.y, 0.0, 1.0 ) );
+			vec4 rayDirection4 = vec4( equirectUvToDirection( equirectUv ), 0.0 );
 			vec4 rayOrigin4 = vec4( 0.0, 0.0, 0.0, 1.0 );
 
 			rayDirection4 = cameraWorldMatrix * rayDirection4;

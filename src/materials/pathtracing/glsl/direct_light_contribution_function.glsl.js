@@ -37,7 +37,7 @@ export const direct_light_contribution_function = /*glsl*/`
 					// weight the direct light contribution
 					float lightPdf = lightRec.pdf / lightsDenom;
 					float misWeight = lightRec.type == SPOT_LIGHT_TYPE || lightRec.type == DIR_LIGHT_TYPE || lightRec.type == POINT_LIGHT_TYPE ? 1.0 : misHeuristic( lightPdf, lightMaterialPdf );
-					result = attenuatedColor * lightRec.emission * state.throughputColor * sampleColor * misWeight / lightPdf;
+					result = attenuatedColor * lightRec.emission * state.throughputColor * sampleColor * misWeight / max( lightPdf, 1e-10 );
 
 				}
 
@@ -80,11 +80,22 @@ export const direct_light_contribution_function = /*glsl*/`
 					// weight the direct light contribution
 					envPdf /= lightsDenom;
 					float misWeight = misHeuristic( envPdf, envMaterialPdf );
-					result = attenuatedColor * environmentIntensity * envColor * state.throughputColor * sampleColor * misWeight / envPdf;
+					result = attenuatedColor * environmentIntensity * envColor * state.throughputColor * sampleColor * misWeight / max( envPdf, 1e-10 );
 
 				}
 
 			}
+
+		}
+
+		// NaN / Inf guard: in multi-light scenes, numerical edge cases (very small
+		// PDFs, degenerate BSDF samples, grazing angles) can produce NaN or Inf values.
+		// Without this clamp the NaN propagates through the additive frame accumulation
+		// and turns the entire image white. We discard the invalid contribution rather
+		// than spreading it.
+		if ( any( isnan( result ) ) || any( isinf( result ) ) ) {
+
+			result = vec3( 0.0 );
 
 		}
 

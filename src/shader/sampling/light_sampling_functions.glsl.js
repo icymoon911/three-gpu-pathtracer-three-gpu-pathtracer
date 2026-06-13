@@ -68,7 +68,7 @@ export const light_sampling_functions = /* glsl */`
 				float cosTheta = dot( rayDirection, normal );
 				didHit = true;
 				lightRec.dist = dist;
-				lightRec.pdf = ( dist * dist ) / ( light.area * cosTheta );
+				lightRec.pdf = ( dist * dist ) / ( light.area * max( cosTheta, EPSILON ) );
 				lightRec.emission = light.color * light.intensity;
 				lightRec.direction = rayDirection;
 				lightRec.type = light.type;
@@ -114,7 +114,7 @@ export const light_sampling_functions = /* glsl */`
 		lightRec.direction = direction;
 
 		// TODO: the denominator is potentially zero
-		lightRec.pdf = lightDistSq / ( light.area * dot( direction, lightNormal ) );
+		lightRec.pdf = lightDistSq / ( light.area * max( dot( direction, lightNormal ), EPSILON ) );
 
 		return lightRec;
 

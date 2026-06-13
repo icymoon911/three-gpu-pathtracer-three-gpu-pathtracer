@@ -243,6 +243,7 @@ export interface DenoiseMaterialParameters extends ShaderMaterialParameters {
 	sigma?: number;
 	kSigma?: number;
 	threshold?: number;
+	samples?: number;
 	map?: Texture;
 
 }
@@ -254,6 +255,7 @@ export class DenoiseMaterial extends MaterialBase {
 	sigma: number;
 	kSigma: number;
 	threshold: number;
+	samples: number;
 	map: Texture | null;
 
 }

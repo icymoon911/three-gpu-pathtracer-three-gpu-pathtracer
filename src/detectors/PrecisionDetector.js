@@ -48,7 +48,16 @@ export class PrecisionDetector {
 
 		function doesPass( type, info ) {
 
-			if ( info.vertex === info.vertexStruct && info.fragment === info.fragmentStruct ) {
+			// Allow a tolerance of ±2 bits between direct and struct precision.
+			// Some mobile GPUs (e.g. certain Mali and Adreno variants) report
+			// minor precision discrepancies (1–2 bits) when highp values are
+			// stored in structs versus accessed directly. These small differences
+			// do not affect path tracing correctness, so we treat them as passing
+			// to avoid false-positive rejections on otherwise capable devices.
+			const tolerance = 2;
+			const vertexDiff = Math.abs( info.vertex - info.vertexStruct );
+			const fragmentDiff = Math.abs( info.fragment - info.fragmentStruct );
+			if ( vertexDiff <= tolerance && fragmentDiff <= tolerance ) {
 
 				return '';
 

@@ -27,6 +27,12 @@ export class DenoiseMaterial extends MaterialBase {
 				threshold: { value: 0.03 },
 				kSigma: { value: 1.0 },
 
+				// Sample count drives the adaptive denoise strength: at low sample
+				// counts the filter shrinks its kernel and relaxes the edge threshold
+				// to preserve detail; as samples accumulate it converges toward the
+				// full sigma / threshold / kSigma values configured above.
+				samples: { value: 1 },
+
 				map: { value: null },
 				opacity: { value: 1 },
 
@@ -66,6 +72,7 @@ export class DenoiseMaterial extends MaterialBase {
 				uniform float sigma;
 				uniform float threshold;
 				uniform float kSigma;
+				uniform int samples;
 				uniform float opacity;
 
 				varying vec2 vUv;
@@ -74,12 +81,12 @@ export class DenoiseMaterial extends MaterialBase {
 				#define INV_PI 0.31830988618379067153776752674503
 
 				// Parameters:
-				//	 sampler2D tex	 - sampler image / texture
-				//	 vec2 uv		   - actual fragment coord
-				//	 float sigma  >  0 - sigma Standard Deviation
-				//	 float kSigma >= 0 - sigma coefficient
-				//		 kSigma * sigma  -->  radius of the circular kernel
-				//	 float threshold   - edge sharpening threshold
+				//   sampler2D tex   - sampler image / texture
+				//   vec2 uv         - actual fragment coord
+				//   float sigma  >  0 - sigma Standard Deviation
+				//   float kSigma >= 0 - sigma coefficient
+				//     kSigma * sigma  -->  radius of the circular kernel
+				//   float threshold   - edge sharpening threshold
 				vec4 smartDeNoise( sampler2D tex, vec2 uv, float sigma, float kSigma, float threshold ) {
 
 					float radius = round( kSigma * sigma );
@@ -120,13 +127,57 @@ export class DenoiseMaterial extends MaterialBase {
 
 					}
 
+					// Guard against division by zero when all weights collapse (e.g.
+					// uniform regions with a very tight threshold).
+					if ( zBuff < 1e-6 ) return centrPx;
 					return aBuff / zBuff;
 
 				}
 
 				void main() {
 
-					gl_FragColor = smartDeNoise( map, vec2( vUv.x, vUv.y ), sigma, kSigma, threshold );
+					// Adaptive denoise: at low sample counts the rendered image is
+					// extremely noisy, so a large bilateral kernel obliterates fine
+					// detail.  We scale sigma and kSigma down and raise the colour
+					// threshold proportionally so that the filter acts as a gentle
+					// localised blur that still respects strong edges.  As samples
+					// accumulate the parameters converge toward the user-configured
+					// values and the filter can safely smooth the remaining noise.
+					float effectiveSigma = sigma;
+					float effectiveThreshold = threshold;
+					float effectiveKSigma = kSigma;
+
+					if ( samples > 0 && samples < 100 ) {
+
+						float sampleFactor = float( samples ) / 100.0;
+
+						// Smoothstep gives a gentle ease-in so the first few samples
+						// barely filter at all, ramping up smoothly as the image
+						// stabilises.
+						float adaptiveFactor = smoothstep( 0.0, 1.0, sampleFactor );
+
+						// Shrink spatial kernel at low sample counts (fewer neighbours
+						// are averaged → details survive).
+						effectiveSigma = mix( max( sigma * 0.25, 1.0 ), sigma, adaptiveFactor );
+
+						// Relax colour threshold at low sample counts so that noise
+						// variations do not trigger the edge-preservation term and
+						// prevent useful neighbouring samples from contributing.
+						effectiveThreshold = mix(
+							max( threshold * 4.0, 0.08 ),
+							threshold,
+							adaptiveFactor
+						);
+
+						// Tighten kernel radius.
+						effectiveKSigma = mix( max( kSigma * 0.5, 0.5 ), kSigma, adaptiveFactor );
+
+					}
+
+					gl_FragColor = smartDeNoise(
+						map, vec2( vUv.x, vUv.y ),
+						effectiveSigma, effectiveKSigma, effectiveThreshold
+					);
 					#include <tonemapping_fragment>
 					#include <colorspace_fragment>
 					#include <premultiplied_alpha_fragment>
