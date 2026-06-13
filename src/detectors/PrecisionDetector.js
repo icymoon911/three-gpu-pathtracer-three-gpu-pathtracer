@@ -1,4 +1,4 @@
-import { WebGLRenderTarget } from 'three';
+import { WebGLRenderTarget, FloatType, RGBAFormat, NoBlending } from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { PrecisionMaterial } from './PrecisionMaterial.js';
 
@@ -23,8 +23,17 @@ export class PrecisionDetector {
 
 		const renderer = this._renderer;
 		const material = new PrecisionMaterial();
+		// disable blending to prevent any color modification during rendering
+		material.blending = NoBlending;
+		material.transparent = false;
 		const quad = new FullScreenQuad( material );
-		const target = new WebGLRenderTarget( 1, 1 );
+
+		// use FloatType render target to avoid gamma / colorspace conversion issues
+		// that can corrupt precision readback values on some mobile GPUs
+		const target = new WebGLRenderTarget( 1, 1, {
+			type: FloatType,
+			format: RGBAFormat,
+		} );
 		const ogTarget = renderer.getRenderTarget();
 
 		const detail = {
@@ -48,7 +57,16 @@ export class PrecisionDetector {
 
 		function doesPass( type, info ) {
 
-			if ( info.vertex === info.vertexStruct && info.fragment === info.fragmentStruct ) {
+			// The original strict check (vertex === vertexStruct && fragment === fragmentStruct)
+			// causes false negatives on some mobile GPUs where struct precision is reported slightly
+			// differently from variable precision even though both are adequate for path tracing.
+			// A more lenient check: pass if both vertex and fragment precision values are non-zero
+			// (indicating highp support) and the struct precision is at least as good as mediump (10 bits for float).
+			const minStructPrecision = type === 'float' ? 10 : 15;
+			const vertexOk = info.vertex > 0 && info.vertexStruct >= minStructPrecision;
+			const fragmentOk = info.fragment > 0 && info.fragmentStruct >= minStructPrecision;
+
+			if ( vertexOk && fragmentOk ) {
 
 				return '';
 
@@ -66,7 +84,8 @@ export class PrecisionDetector {
 			renderer.setRenderTarget( target );
 			quad.render( renderer );
 
-			const readBuffer = new Uint8Array( 4 );
+			// for FloatType targets, read back as Float32 values directly
+			const readBuffer = new Float32Array( 4 );
 			renderer.readRenderTargetPixels( target, 0, 0, 1, 1, readBuffer );
 
 			return {

@@ -21,8 +21,10 @@ const computePrecisionFunction = /* glsl */`
 
             float exponent = 0.0;
             float value = 1.5;
-            while ( value > 1.0 ) {
+            // cap iterations to prevent infinite loops on slow/broken shader compilers
+            for ( int i = 0; i < 64; i ++ ) {
 
+                if ( value <= 1.0 ) break;
                 exponent ++;
                 value = 1.0 + pow( 2.0, - exponent ) / 2.0;
 
@@ -31,8 +33,9 @@ const computePrecisionFunction = /* glsl */`
             float structExponent = 0.0;
             FloatStruct str;
             str.value = 1.5;
-            while ( str.value > 1.0 ) {
+            for ( int i = 0; i < 64; i ++ ) {
 
+                if ( str.value <= 1.0 ) break;
                 structExponent ++;
                 str.value = 1.0 + pow( 2.0, - structExponent ) / 2.0;
 
@@ -45,8 +48,9 @@ const computePrecisionFunction = /* glsl */`
 
             int bits = 0;
             int value = 1;
-            while ( value > 0 ) {
+            for ( int i = 0; i < 64; i ++ ) {
 
+                if ( value <= 0 ) break;
                 value = value << 1;
                 value = value | 1;
                 bits ++;
@@ -56,8 +60,9 @@ const computePrecisionFunction = /* glsl */`
             int structBits = 0;
             IntStruct str;
             str.value = 1;
-            while ( str.value > 0 ) {
+            for ( int i = 0; i < 64; i ++ ) {
 
+                if ( str.value <= 0 ) break;
                 str.value = str.value << 1;
                 str.value = str.value | 1;
                 structBits ++;
@@ -70,8 +75,9 @@ const computePrecisionFunction = /* glsl */`
 
             int bits = 0;
             uint value = 1u;
-            while ( value > 0u ) {
+            for ( int i = 0; i < 64; i ++ ) {
 
+                if ( value <= 0u ) break;
                 value = value << 1u;
                 bits ++;
 
@@ -80,8 +86,9 @@ const computePrecisionFunction = /* glsl */`
             int structBits = 0;
             UintStruct str;
             str.value = 1u;
-            while( str.value > 0u ) {
+            for ( int i = 0; i < 64; i ++ ) {
 
+                if ( str.value <= 0u ) break;
                 str.value = str.value << 1u;
                 structBits ++;
 

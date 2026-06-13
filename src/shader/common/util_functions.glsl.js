@@ -59,6 +59,23 @@ export const util_functions = /* glsl */`
 	// is cast that is on the top side of the geometry normal plane but below the surface normal plane. If
 	// we find a ray like that we ignore it to avoid artifacts.
 	// This function returns if the direction is on the same side of both planes.
+	// For transmissive surfaces (transmission > 0), light can reach the surface from both sides,
+	// so we only check against the shading normal to avoid incorrectly blocking valid light paths
+	// through transparent objects (e.g., glass sphere + spotlight causing black artifacts).
+	bool isDirectionValid( vec3 direction, vec3 surfaceNormal, vec3 geometryNormal, float transmission ) {
+
+		bool aboveSurfaceNormal = dot( direction, surfaceNormal ) > 0.0;
+		if ( transmission > 0.0 ) {
+
+			return aboveSurfaceNormal;
+
+		}
+
+		bool aboveGeometryNormal = dot( direction, geometryNormal ) > 0.0;
+		return aboveSurfaceNormal == aboveGeometryNormal;
+
+	}
+
 	bool isDirectionValid( vec3 direction, vec3 surfaceNormal, vec3 geometryNormal ) {
 
 		bool aboveSurfaceNormal = dot( direction, surfaceNormal ) > 0.0;
@@ -102,6 +119,9 @@ export const util_functions = /* glsl */`
 
 		float aa = a * a;
 		float bb = b * b;
+
+		// guard against NaN when both pdfs are zero
+		if ( aa + bb == 0.0 ) return 0.0;
 		return aa / ( aa + bb );
 
 	}

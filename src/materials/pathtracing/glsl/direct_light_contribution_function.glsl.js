@@ -4,13 +4,18 @@ export const direct_light_contribution_function = /*glsl*/`
 
 		vec3 result = vec3( 0.0 );
 
+		// for transmissive surfaces, light can reach from both sides so we should not
+		// reject samples based on the face normal alone. This fixes black artifacts
+		// when transparent objects (e.g., glass) are combined with spotlights.
+		bool isTransmissive = surf.transmission > 0.0;
+
 		// uniformly pick a light or environment map
 		if( lightsDenom != 0.0 && rand( 5 ) < float( lights.count ) / lightsDenom ) {
 
 			// sample a light or environment
 			LightRecord lightRec = randomLightSample( lights.tex, iesProfiles, lights.count, rayOrigin, rand3( 6 ) );
 
-			bool isSampleBelowSurface = ! surf.volumeParticle && dot( surf.faceNormal, lightRec.direction ) < 0.0;
+			bool isSampleBelowSurface = ! surf.volumeParticle && ! isTransmissive && dot( surf.faceNormal, lightRec.direction ) < 0.0;
 			if ( isSampleBelowSurface ) {
 
 				lightRec.pdf = 0.0;
@@ -24,7 +29,7 @@ export const direct_light_contribution_function = /*glsl*/`
 			vec3 attenuatedColor;
 			if (
 				lightRec.pdf > 0.0 &&
-				isDirectionValid( lightRec.direction, surf.normal, surf.faceNormal ) &&
+				isDirectionValid( lightRec.direction, surf.normal, surf.faceNormal, surf.transmission ) &&
 				! attenuateHit( state, lightRay, lightRec.dist, attenuatedColor )
 			) {
 
@@ -36,8 +41,21 @@ export const direct_light_contribution_function = /*glsl*/`
 
 					// weight the direct light contribution
 					float lightPdf = lightRec.pdf / lightsDenom;
-					float misWeight = lightRec.type == SPOT_LIGHT_TYPE || lightRec.type == DIR_LIGHT_TYPE || lightRec.type == POINT_LIGHT_TYPE ? 1.0 : misHeuristic( lightPdf, lightMaterialPdf );
-					result = attenuatedColor * lightRec.emission * state.throughputColor * sampleColor * misWeight / lightPdf;
+
+					// guard against zero or near-zero lightPdf to prevent NaN
+					if ( lightPdf > EPSILON ) {
+
+						float misWeight = lightRec.type == SPOT_LIGHT_TYPE || lightRec.type == DIR_LIGHT_TYPE || lightRec.type == POINT_LIGHT_TYPE ? 1.0 : misHeuristic( lightPdf, lightMaterialPdf );
+						result = attenuatedColor * lightRec.emission * state.throughputColor * sampleColor * misWeight / lightPdf;
+
+						// clamp NaN / Inf to prevent single bad samples from corrupting the frame
+						if ( any( isnan( result ) ) || any( isinf( result ) ) ) {
+
+							result = vec3( 0.0 );
+
+						}
+
+					}
 
 				}
 
@@ -53,7 +71,7 @@ export const direct_light_contribution_function = /*glsl*/`
 			// this env sampling is not set up for transmissive sampling and yields overly bright
 			// results so we ignore the sample in this case.
 			// TODO: this should be improved but how? The env samples could traverse a few layers?
-			bool isSampleBelowSurface = ! surf.volumeParticle && dot( surf.faceNormal, envDirection ) < 0.0;
+			bool isSampleBelowSurface = ! surf.volumeParticle && ! isTransmissive && dot( surf.faceNormal, envDirection ) < 0.0;
 			if ( isSampleBelowSurface ) {
 
 				envPdf = 0.0;
@@ -67,7 +85,7 @@ export const direct_light_contribution_function = /*glsl*/`
 			vec3 attenuatedColor;
 			if (
 				envPdf > 0.0 &&
-				isDirectionValid( envDirection, surf.normal, surf.faceNormal ) &&
+				isDirectionValid( envDirection, surf.normal, surf.faceNormal, surf.transmission ) &&
 				! attenuateHit( state, envRay, INFINITY, attenuatedColor )
 			) {
 
@@ -79,8 +97,21 @@ export const direct_light_contribution_function = /*glsl*/`
 
 					// weight the direct light contribution
 					envPdf /= lightsDenom;
-					float misWeight = misHeuristic( envPdf, envMaterialPdf );
-					result = attenuatedColor * environmentIntensity * envColor * state.throughputColor * sampleColor * misWeight / envPdf;
+
+					// guard against zero or near-zero envPdf to prevent NaN
+					if ( envPdf > EPSILON ) {
+
+						float misWeight = misHeuristic( envPdf, envMaterialPdf );
+						result = attenuatedColor * environmentIntensity * envColor * state.throughputColor * sampleColor * misWeight / envPdf;
+
+						// clamp NaN / Inf to prevent single bad samples from corrupting the frame
+						if ( any( isnan( result ) ) || any( isinf( result ) ) ) {
+
+							result = vec3( 0.0 );
+
+						}
+
+					}
 
 				}
 

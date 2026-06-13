@@ -480,6 +480,14 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 
 						gl_FragColor.rgb += directLightContribution( - ray.direction, surf, state, hitPoint );
 
+						// NaN guard: prevent a single bad light sample from corrupting the accumulated color
+						if ( any( isnan( gl_FragColor.rgb ) ) || any( isinf( gl_FragColor.rgb ) ) ) {
+
+							gl_FragColor.rgb = vec3( 0.0 );
+							break;
+
+						}
+
 						#endif
 
 						// accumulate a roughness value to offset diffuse, specular, diffuse rays that have high contribution
@@ -564,6 +572,14 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 						// prepare for next ray
 						ray.direction = scatterRec.direction;
 						ray.origin = hitPoint;
+
+					}
+
+					// final NaN guard: clamp any accumulated NaN/Inf values to zero
+					// so a single bad sample cannot corrupt the entire frame to white
+					if ( any( isnan( gl_FragColor.rgb ) ) || any( isinf( gl_FragColor.rgb ) ) ) {
+
+						gl_FragColor.rgb = vec3( 0.0 );
 
 					}
 

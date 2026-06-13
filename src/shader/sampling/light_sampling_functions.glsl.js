@@ -104,7 +104,7 @@ export const light_sampling_functions = /* glsl */`
 		vec3 toLight = randomPos - rayOrigin;
 		float lightDistSq = dot( toLight, toLight );
 		float dist = sqrt( lightDistSq );
-		vec3 direction = toLight / dist;
+		vec3 direction = toLight / max( dist, EPSILON );
 		vec3 lightNormal = normalize( cross( light.u, light.v ) );
 
 		LightRecord lightRec;
@@ -113,8 +113,10 @@ export const light_sampling_functions = /* glsl */`
 		lightRec.dist = dist;
 		lightRec.direction = direction;
 
-		// TODO: the denominator is potentially zero
-		lightRec.pdf = lightDistSq / ( light.area * dot( direction, lightNormal ) );
+		// use abs() and max() guards to prevent zero or negative PDF values that cause NaN
+		// when dividing by the PDF downstream in directLightContribution
+		float cosAngle = abs( dot( direction, lightNormal ) );
+		lightRec.pdf = lightDistSq / ( light.area * max( cosAngle, EPSILON ) );
 
 		return lightRec;
 
