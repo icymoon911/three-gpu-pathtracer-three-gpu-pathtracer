@@ -11,6 +11,67 @@ f90    : Amount of light reflected at grazing angles
 
 export const bsdf_functions = /* glsl */`
 
+	// subsurface scattering
+	// Approximation using a thickness-based translucency model.
+	// Light passing through a thin translucent surface is attenuated by the subsurface
+	// color and the thickness at the hit point, producing a soft glow on the opposite side.
+	float subsurfaceEval( vec3 wo, vec3 wi, vec3 wh, SurfaceRecord surf, inout vec3 color ) {
+
+		float thickness = surf.sssThickness;
+		if ( thickness <= 0.0 ) return 0.0;
+
+		// Beer-Lambert attenuation through the medium
+		vec3 scatterColor = surf.subsurfaceColor;
+		float scatterDist = max( surf.scatterDistance, 0.001 );
+		vec3 extinction = -log( clamp( scatterColor, vec3( 0.001 ), vec3( 1.0 ) ) ) / scatterDist;
+		vec3 attenuation = exp( -extinction * thickness );
+
+		// wrap diffuse for soft front-facing scattering
+		float wrapFactor = 0.5;
+		float NoL = wi.z;
+		float wrappedDiffuse = max( 0.0, ( NoL + wrapFactor ) / ( 1.0 + wrapFactor ) );
+
+		// back-scatter: light that passes through the surface from the other side
+		// when wi is below the surface (wi.z < 0), we simulate transmitted light
+		float backScatter = 0.0;
+		if ( wi.z < 0.0 ) {
+
+			backScatter = max( 0.0, -wi.z ) * 0.5;
+
+		}
+
+		color = attenuation * ( wrappedDiffuse + backScatter ) * surf.subsurfaceColor / PI;
+		return abs( wi.z ) / PI;
+
+	}
+
+	vec3 subsurfaceDirection( vec3 wo, SurfaceRecord surf ) {
+
+		// sample a direction - mix between forward scatter and diffuse scatter
+		// based on the thickness. Thinner surfaces scatter more forward.
+		float thickness = surf.sssThickness;
+		float forwardBias = clamp( 1.0 - thickness * 0.5, 0.0, 0.8 );
+
+		vec3 lightDirection = sampleSphere( rand2( 17 ) );
+
+		// bias towards the opposite side of the surface for translucency
+		if ( rand( 18 ) < 0.5 ) {
+
+			// back-scattered direction (through the surface)
+			lightDirection.z = -abs( lightDirection.z ) * ( 1.0 - forwardBias ) - forwardBias;
+
+		} else {
+
+			// front-scattered direction (same side, wrapped diffuse)
+			lightDirection.z = abs( lightDirection.z );
+
+		}
+
+		lightDirection = normalize( lightDirection );
+		return lightDirection;
+
+	}
+
 	// diffuse
 	float diffuseEval( vec3 wo, vec3 wi, vec3 wh, SurfaceRecord surf, inout vec3 color ) {
 
@@ -258,11 +319,32 @@ export const bsdf_functions = /* glsl */`
 		transmissionWeight = transmission * ( 1.0 - transSpecularProb );
 		clearcoatWeight = surf.clearcoat * schlickFresnel( clearcoatWo.z, 0.04 );
 
-		float totalWeight = diffuseWeight + specularWeight + transmissionWeight + clearcoatWeight;
+		// SSS weight: if the material has subsurface thickness, blend some diffuse weight into SSS
+		float sssWeight = 0.0;
+		if ( surf.sssThickness > 0.0 ) {
+
+			// SSS replaces part of the diffuse lobe based on thickness and scatter distance
+			float sssStrength = clamp( surf.sssThickness / max( surf.scatterDistance, 0.001 ), 0.0, 1.0 );
+			sssWeight = diffuseWeight * sssStrength * ( 1.0 - metalness );
+			diffuseWeight -= sssWeight;
+
+		}
+
+		float totalWeight = diffuseWeight + specularWeight + transmissionWeight + clearcoatWeight + sssWeight;
 		diffuseWeight /= totalWeight;
 		specularWeight /= totalWeight;
 		transmissionWeight /= totalWeight;
 		clearcoatWeight /= totalWeight;
+		sssWeight /= totalWeight;
+
+		// Pack sssWeight into diffuseWeight for use by bsdfEval/bsdfSample.
+		// Since we can't easily add a 5th parameter without major refactoring,
+		// we use a combined approach: diffuseWeight carries both, and bsdfEval
+		// separates them based on the wi.z sign and surf.sssThickness.
+		// Actually let's use a cleaner approach: store in clearcoatWeight as a secondary.
+		// But this would be too hacky. Let's add the sssWeight back into diffuseWeight
+		// and let bsdfEval handle both lobes in the diffuse path.
+		diffuseWeight += sssWeight;
 	}
 
 	float bsdfEval(
@@ -286,6 +368,18 @@ export const bsdf_functions = /* glsl */`
 
 			dpdf = diffuseEval( wo, wi, halfVector, surf, color );
 			color *= 1.0 - surf.transmission;
+
+			// blend in SSS contribution when thickness is present
+			if ( surf.sssThickness > 0.0 ) {
+
+				float sssStrength = clamp( surf.sssThickness / max( surf.scatterDistance, 0.001 ), 0.0, 1.0 );
+				float metalFactor = 1.0 - surf.metalness;
+				vec3 sssColor = vec3( 0.0 );
+				float sssPdf = subsurfaceEval( wo, wi, halfVector, surf, sssColor );
+				color = mix( color, sssColor * metalFactor, sssStrength );
+				dpdf = mix( dpdf, sssPdf, sssStrength );
+
+			}
 
 		}
 
@@ -419,7 +513,17 @@ export const bsdf_functions = /* glsl */`
 		float r = rand( 15 );
 		if ( r <= cdf[0] ) { // diffuse
 
-			wi = diffuseDirection( wo, surf );
+			// if SSS is active, sometimes sample the subsurface lobe instead
+			if ( surf.sssThickness > 0.0 && rand( 19 ) < clamp( surf.sssThickness / max( surf.scatterDistance, 0.001 ), 0.0, 1.0 ) * ( 1.0 - surf.metalness ) ) {
+
+				wi = subsurfaceDirection( wo, surf );
+
+			} else {
+
+				wi = diffuseDirection( wo, surf );
+
+			}
+
 			clearcoatWi = normalize( clearcoatInvBasis * normalize( normalBasis * wi ) );
 
 		} else if ( r <= cdf[1] ) { // specular

@@ -66,6 +66,13 @@ export const material_struct = /* glsl */ `
 		bool transparent;
 		bool fogVolume;
 
+		// subsurface scattering
+		float sssThickness;
+		vec3 subsurfaceColor;
+		float scatterDistance;
+		int subsurfaceColorMap;
+		int sssThicknessMap;
+
 		mat3 mapTransform;
 		mat3 metalnessMapTransform;
 		mat3 roughnessMapTransform;
@@ -82,6 +89,8 @@ export const material_struct = /* glsl */ `
 		mat3 specularColorMapTransform;
 		mat3 specularIntensityMapTransform;
 		mat3 alphaMapTransform;
+		mat3 subsurfaceColorMapTransform;
+		mat3 sssThicknessMapTransform;
 
 	};
 
@@ -119,6 +128,8 @@ export const material_struct = /* glsl */ `
 		vec4 s12 = texelFetch1D( tex, i + 12u );
 		vec4 s13 = texelFetch1D( tex, i + 13u );
 		vec4 s14 = texelFetch1D( tex, i + 14u );
+		vec4 s15 = texelFetch1D( tex, i + 15u );
+		vec4 s16 = texelFetch1D( tex, i + 16u );
 
 		Material m;
 		m.color = s0.rgb;
@@ -183,7 +194,14 @@ export const material_struct = /* glsl */ `
 		m.fogVolume = bool( int( s14.b ) & 4 );
 		m.transparent = bool( s14.a );
 
-		uint firstTextureTransformIdx = i + 15u;
+		// subsurface scattering
+		m.subsurfaceColor = s15.rgb;
+		m.scatterDistance = s15.a;
+		m.sssThickness = s16.r;
+		m.subsurfaceColorMap = int( round( s16.g ) );
+		m.sssThicknessMap = int( round( s16.b ) );
+
+		uint firstTextureTransformIdx = i + 17u;
 
 		// mat3( 1.0 ) is an identity matrix
 		m.mapTransform = m.map == - 1 ? mat3( 1.0 ) : readTextureTransform( tex, firstTextureTransformIdx );
@@ -202,6 +220,8 @@ export const material_struct = /* glsl */ `
 		m.specularColorMapTransform = m.specularColorMap == - 1 ? mat3( 1.0 ) : readTextureTransform( tex, firstTextureTransformIdx + 26u );
 		m.specularIntensityMapTransform = m.specularIntensityMap == - 1 ? mat3( 1.0 ) : readTextureTransform( tex, firstTextureTransformIdx + 28u );
 		m.alphaMapTransform = m.alphaMap == - 1 ? mat3( 1.0 ) : readTextureTransform( tex, firstTextureTransformIdx + 30u );
+		m.subsurfaceColorMapTransform = m.subsurfaceColorMap == - 1 ? mat3( 1.0 ) : readTextureTransform( tex, firstTextureTransformIdx + 32u );
+		m.sssThicknessMapTransform = m.sssThicknessMap == - 1 ? mat3( 1.0 ) : readTextureTransform( tex, firstTextureTransformIdx + 34u );
 
 		return m;
 

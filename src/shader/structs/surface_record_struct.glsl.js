@@ -51,6 +51,11 @@ export const surface_record_struct = /* glsl */`
 		// specular
 		vec3 specularColor;
 		float specularIntensity;
+
+		// subsurface scattering
+		float sssThickness;
+		vec3 subsurfaceColor;
+		float scatterDistance;
 	};
 
 	struct ScatterRecord {

@@ -264,6 +264,23 @@ export const get_surface_record_function = /* glsl */`
 
 		}
 
+		// subsurface scattering
+		vec3 subsurfaceColor = material.subsurfaceColor;
+		if ( material.subsurfaceColorMap != - 1 ) {
+
+			vec3 uvPrime = material.subsurfaceColorMapTransform * vec3( uv, 1 );
+			subsurfaceColor *= texture2D( textures, vec3( uvPrime.xy, material.subsurfaceColorMap ) ).rgb;
+
+		}
+
+		float sssThickness = material.sssThickness;
+		if ( material.sssThicknessMap != - 1 ) {
+
+			vec3 uvPrime = material.sssThicknessMapTransform * vec3( uv, 1 );
+			sssThickness *= texture2D( textures, vec3( uvPrime.xy, material.sssThicknessMap ) ).r;
+
+		}
+
 		surf.volumeParticle = false;
 
 		surf.faceNormal = surfaceHit.faceNormal;
@@ -291,6 +308,10 @@ export const get_surface_record_function = /* glsl */`
 
 		surf.specularColor = specularColor;
 		surf.specularIntensity = specularIntensity;
+
+		surf.subsurfaceColor = subsurfaceColor;
+		surf.sssThickness = sssThickness;
+		surf.scatterDistance = material.scatterDistance;
 
 		// apply perceptual roughness factor from gltf. sheen perceptual roughness is
 		// applied by its brdf function

@@ -2,7 +2,7 @@ import { DataTexture, RGBAFormat, ClampToEdgeWrapping, FloatType, FrontSide, Bac
 import { getTextureHash } from '../core/utils/sceneUpdateUtils.js';
 import { bufferToHash } from '../utils/bufferToHash.js';
 
-export const MATERIAL_PIXELS = 47;
+export const MATERIAL_PIXELS = 53;
 const MATERIAL_STRIDE = MATERIAL_PIXELS * 4;
 
 class MaterialFeatures {
@@ -382,7 +382,30 @@ export class MaterialsTexture extends DataTexture {
 			floatArray[ index ++ ] = Number( m.vertexColors ) | ( Number( m.flatShading ) << 1 ); // vertexColors & flatShading
 			floatArray[ index ++ ] = Number( m.transparent ); // transparent
 
-			// map transform 15
+			// sample 15 - subsurface scattering color and scatter distance
+			if ( 'subsurfaceColor' in m ) {
+
+				floatArray[ index ++ ] = m.subsurfaceColor.r;
+				floatArray[ index ++ ] = m.subsurfaceColor.g;
+				floatArray[ index ++ ] = m.subsurfaceColor.b;
+
+			} else {
+
+				floatArray[ index ++ ] = 1.0;
+				floatArray[ index ++ ] = 1.0;
+				floatArray[ index ++ ] = 1.0;
+
+			}
+
+			floatArray[ index ++ ] = getField( m, 'scatterDistance', 1.0 );
+
+			// sample 16 - sss thickness, subsurfaceColorMap, sssThicknessMap
+			floatArray[ index ++ ] = getField( m, 'sssThickness', 0.0 );
+			floatArray[ index ++ ] = getTexture( m, 'subsurfaceColorMap' );
+			floatArray[ index ++ ] = getTexture( m, 'sssThicknessMap' );
+			index ++; // unused
+
+			// map transform 17
 			index += writeTextureMatrixToArray( m, 'map', floatArray, index );
 
 			// metalnessMap transform 17
@@ -427,8 +450,14 @@ export class MaterialsTexture extends DataTexture {
 			// specularIntensityMap transform 43
 			index += writeTextureMatrixToArray( m, 'specularIntensityMap', floatArray, index );
 
-			// alphaMap transform 45
+			// alphaMap transform 47
 			index += writeTextureMatrixToArray( m, 'alphaMap', floatArray, index );
+
+			// subsurfaceColorMap transform 49
+			index += writeTextureMatrixToArray( m, 'subsurfaceColorMap', floatArray, index );
+
+			// sssThicknessMap transform 51
+			index += writeTextureMatrixToArray( m, 'sssThicknessMap', floatArray, index );
 
 		}
 

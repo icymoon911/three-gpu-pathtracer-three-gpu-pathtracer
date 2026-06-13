@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending } from 'three';
+import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending, Box3 } from 'three';
 import { PathTracingSceneGenerator } from './PathTracingSceneGenerator.js';
 import { PathTracingRenderer } from './PathTracingRenderer.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
@@ -124,6 +124,14 @@ export class WebGLPathTracer {
 		this._previousEnvironment = null;
 		this._previousBackground = null;
 		this._internalBackground = null;
+
+		// change tracking for incremental updates
+		this._changeTracking = {
+			lastCameraHash: '',
+			lastEnvHash: '',
+			lastMaterialsHash: '',
+			lastLightHash: '',
+		};
 
 		// options
 		this.renderDelay = 100;
@@ -380,6 +388,386 @@ export class WebGLPathTracer {
 		this.updateLights();
 
 		return results;
+
+	}
+
+	/**
+	 * Performs an incremental scene update, only rebuilding the parts that
+	 * have changed since the last call. This avoids full shader recompilation
+	 * and BVH rebuilds when only camera, lights, or material properties change.
+	 *
+	 * Change categories (from cheapest to most expensive):
+	 *   1. Camera-only change  → updateCamera()  (no recompile, no reset if only focus/aperture)
+	 *   2. Light-only change   → updateLights()  (no recompile)
+	 *   3. Material property   → updateMaterials() (no recompile unless features change)
+	 *   4. Environment change  → updateEnvironment() (no recompile)
+	 *   5. Geometry change     → full setScene() (recompile + BVH rebuild)
+	 *
+	 * @param {Object} [options]
+	 * @param {boolean} [options.force=false] Force full scene rebuild regardless of detected changes.
+	 * @param {Object} [options.changes] Explicitly declare what changed, bypassing auto-detection.
+	 *        Supported keys: `camera`, `lights`, `materials`, `environment`, `geometry`.
+	 * @returns {string} One of 'none', 'camera', 'lights', 'materials', 'environment', 'geometry'.
+	 */
+	updateScene( options = {} ) {
+
+		const scene = this.scene;
+		const camera = this.camera;
+		if ( ! scene || ! camera ) return 'none';
+
+		const force = options.force || false;
+		const explicit = options.changes || null;
+
+		// If explicit changes are provided, use them directly
+		if ( explicit ) {
+
+			return this._applyExplicitChanges( explicit );
+
+		}
+
+		// Auto-detect changes
+		const changeType = this._detectChanges();
+
+		if ( force || changeType === 'geometry' ) {
+
+			this.setScene( scene, camera );
+			this._resetChangeTracking();
+			return 'geometry';
+
+		}
+
+		if ( changeType === 'none' ) return 'none';
+
+		// Apply detected changes incrementally
+		if ( changeType === 'camera' ) {
+
+			this.updateCamera();
+
+		}
+
+		if ( changeType === 'environment' || changeType === 'all' ) {
+
+			this.updateEnvironment();
+
+		}
+
+		if ( changeType === 'lights' || changeType === 'all' ) {
+
+			this.updateLights();
+
+		}
+
+		if ( changeType === 'materials' || changeType === 'all' ) {
+
+			this.updateMaterials();
+
+		}
+
+		this._resetChangeTracking();
+		return changeType;
+
+	}
+
+	/**
+	 * Applies explicit changes declared by the caller.
+	 * @param {Object} changes
+	 * @returns {string}
+	 * @private
+	 */
+	_applyExplicitChanges( changes ) {
+
+		let heaviest = 'none';
+
+		if ( changes.geometry ) {
+
+			this.setScene( this.scene, this.camera );
+			this._resetChangeTracking();
+			return 'geometry';
+
+		}
+
+		if ( changes.camera ) {
+
+			this.updateCamera();
+			heaviest = 'camera';
+
+		}
+
+		if ( changes.environment ) {
+
+			this.updateEnvironment();
+			heaviest = 'environment';
+
+		}
+
+		if ( changes.lights ) {
+
+			this.updateLights();
+			heaviest = 'lights';
+
+		}
+
+		if ( changes.materials ) {
+
+			this.updateMaterials();
+			heaviest = 'materials';
+
+		}
+
+		this._resetChangeTracking();
+		return heaviest;
+
+	}
+
+	/**
+	 * Detects what has changed since the last update by comparing scene state.
+	 * Returns the heaviest change type found.
+	 * @returns {string} 'none' | 'camera' | 'lights' | 'materials' | 'environment' | 'geometry'
+	 * @private
+	 */
+	_detectChanges() {
+
+		const scene = this.scene;
+		const camera = this.camera;
+		const tracking = this._changeTracking;
+
+		// Check camera transform changes
+		camera.updateMatrixWorld();
+		const camHash = this._hashMatrix( camera.matrixWorld ) + this._hashMatrix( camera.projectionMatrix );
+		if ( camHash !== tracking.lastCameraHash ) {
+
+			tracking.lastCameraHash = camHash;
+			return 'camera';
+
+		}
+
+		// Check scene background/environment changes
+		const envHash = ( scene.background ? scene.background.uuid : 'null' ) + ':' +
+		                ( scene.environment ? scene.environment.uuid : 'null' );
+		if ( envHash !== tracking.lastEnvHash ) {
+
+			tracking.lastEnvHash = envHash;
+			return 'environment';
+
+		}
+
+		// Check materials - hash the list of material uuids and their versions
+		const materials = this._materials;
+		if ( materials ) {
+
+			let matHash = '';
+			for ( let i = 0, l = materials.length; i < l; i ++ ) {
+
+				const m = materials[ i ];
+				matHash += m.uuid + ':' + ( m.version || 0 ) + ';';
+
+			}
+
+			if ( matHash !== tracking.lastMaterialsHash ) {
+
+				tracking.lastMaterialsHash = matHash;
+				return 'materials';
+
+			}
+
+		}
+
+		// Check lights by traversing scene
+		let lightHash = '';
+		scene.traverse( c => {
+
+			if ( c.visible && ( c.isRectAreaLight || c.isSpotLight || c.isPointLight || c.isDirectionalLight ) ) {
+
+				lightHash += c.uuid + ':' + c.intensity + ':' + c.color.getHex() + ';';
+
+			}
+
+		} );
+
+		if ( lightHash !== tracking.lastLightHash ) {
+
+			tracking.lastLightHash = lightHash;
+			return 'lights';
+
+		}
+
+		return 'none';
+
+	}
+
+	/**
+	 * @private
+	 */
+	_hashMatrix( m ) {
+
+		return m.elements.join( ',' );
+
+	}
+
+	/**
+	 * @private
+	 */
+	_resetChangeTracking() {
+
+		const tracking = this._changeTracking;
+		const scene = this.scene;
+		const camera = this.camera;
+
+		if ( camera ) {
+
+			camera.updateMatrixWorld();
+			tracking.lastCameraHash = this._hashMatrix( camera.matrixWorld ) + this._hashMatrix( camera.projectionMatrix );
+
+		}
+
+		if ( scene ) {
+
+			tracking.lastEnvHash = ( scene.background ? scene.background.uuid : 'null' ) + ':' +
+			                       ( scene.environment ? scene.environment.uuid : 'null' );
+
+			let lightHash = '';
+			scene.traverse( c => {
+
+				if ( c.visible && ( c.isRectAreaLight || c.isSpotLight || c.isPointLight || c.isDirectionalLight ) ) {
+
+					lightHash += c.uuid + ':' + c.intensity + ':' + c.color.getHex() + ';';
+
+				}
+
+			} );
+			tracking.lastLightHash = lightHash;
+
+		}
+
+		if ( this._materials ) {
+
+			let matHash = '';
+			for ( let i = 0, l = this._materials.length; i < l; i ++ ) {
+
+				const m = this._materials[ i ];
+				matHash += m.uuid + ':' + ( m.version || 0 ) + ';';
+
+			}
+
+			tracking.lastMaterialsHash = matHash;
+
+		}
+
+	}
+
+	/**
+	 * Convenience: update only the camera without triggering a full scene reset.
+	 * Use this when you know only the camera has moved (e.g., orbit controls).
+	 * Unlike `updateCamera()`, this does NOT reset the sample count if only
+	 * focus/aperture parameters changed (i.e., the camera position and direction
+	 * are unchanged).
+	 */
+	updateCameraOnly( focusOnly = false ) {
+
+		const camera = this.camera;
+		if ( ! camera ) return;
+
+		camera.updateMatrixWorld();
+
+		if ( focusOnly ) {
+
+			// Only update DOF parameters, don't reset accumulation
+			const material = this._pathTracer.material;
+			material.physicalCamera.updateFrom( camera );
+
+		} else {
+
+			this.updateCamera();
+
+		}
+
+	}
+
+	/**
+	 * Compute the distance from the camera to the nearest surface along the
+	 * view direction through the center of the screen. Useful for auto-focus.
+	 * Uses the BVH for efficient raycasting.
+	 * @param {number} [ndcX=0] NDC x coordinate (-1 to 1)
+	 * @param {number} [ndcY=0] NDC y coordinate (-1 to 1)
+	 * @returns {number} Distance to nearest hit, or camera.far if no hit.
+	 */
+	getSceneDistanceAtNDC( ndcX = 0, ndcY = 0 ) {
+
+		const camera = this.camera;
+		if ( ! camera ) return 100;
+
+		camera.updateMatrixWorld();
+
+		const camMatrix = camera.matrixWorld;
+		const invProj = camera.projectionMatrixInverse;
+
+		// Get ray origin from camera world position
+		const ox = camMatrix.elements[ 12 ];
+		const oy = camMatrix.elements[ 13 ];
+		const oz = camMatrix.elements[ 14 ];
+
+		// Get ray direction from NDC through inverse projection
+		const e = invProj.elements;
+		const vx = e[ 0 ] * ndcX + e[ 4 ] * ndcY + e[ 12 ];
+		const vy = e[ 1 ] * ndcX + e[ 5 ] * ndcY + e[ 13 ];
+		const vz = e[ 2 ] * ndcX + e[ 6 ] * ndcY + e[ 14 ];
+
+		// Transform to world space via camera rotation (upper-left 3x3)
+		const wx = camMatrix.elements[ 0 ] * vx + camMatrix.elements[ 4 ] * vy + camMatrix.elements[ 8 ] * vz;
+		const wy = camMatrix.elements[ 1 ] * vx + camMatrix.elements[ 5 ] * vy + camMatrix.elements[ 9 ] * vz;
+		const wz = camMatrix.elements[ 2 ] * vx + camMatrix.elements[ 6 ] * vy + camMatrix.elements[ 10 ] * vz;
+
+		const len = Math.sqrt( wx * wx + wy * wy + wz * wz );
+		const dx = wx / len, dy = wy / len, dz = wz / len;
+
+		// Raycast against the scene using three-mesh-bvh
+		const material = this._pathTracer.material;
+		const bvh = material.bvh;
+		if ( ! bvh ) return camera.far;
+
+		// Use three-mesh-bvh's raycast for accurate intersection
+		const result = { distance: camera.far };
+		bvh.raycastFirst(
+			{ x: ox, y: oy, z: oz },
+			{ x: dx, y: dy, z: dz },
+			( geometry, hit ) => {
+
+				if ( hit && hit.distance < result.distance ) {
+
+					result.distance = hit.distance;
+
+				}
+
+			}
+		);
+
+		return result.distance;
+
+	}
+
+	/**
+	 * Simple ray-AABB intersection test.
+	 * @private
+	 */
+	_rayBoxIntersect( origin, dir, box ) {
+
+		const minX = box.min.x, minY = box.min.y, minZ = box.min.z;
+		const maxX = box.max.x, maxY = box.max.y, maxZ = box.max.z;
+
+		const invDirX = 1 / dir.x, invDirY = 1 / dir.y, invDirZ = 1 / dir.z;
+
+		const t1 = ( minX - origin.x ) * invDirX;
+		const t2 = ( maxX - origin.x ) * invDirX;
+		const t3 = ( minY - origin.y ) * invDirY;
+		const t4 = ( maxY - origin.y ) * invDirY;
+		const t5 = ( minZ - origin.z ) * invDirZ;
+		const t6 = ( maxZ - origin.z ) * invDirZ;
+
+		const tmin = Math.max( Math.max( Math.min( t1, t2 ), Math.min( t3, t4 ) ), Math.min( t5, t6 ) );
+		const tmax = Math.min( Math.min( Math.max( t1, t2 ), Math.max( t3, t4 ) ), Math.max( t5, t6 ) );
+
+		if ( tmax < 0 || tmin > tmax ) return null;
+		return tmin < 0 ? tmax : tmin;
 
 	}
 

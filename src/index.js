@@ -14,10 +14,13 @@ export * from './textures/GradientEquirectTexture.js';
 
 // utils
 export * from './utils/BlurredEnvMapGenerator.js';
+export * from './utils/EXRExporter.js';
 
 // materials
 export * from './materials/fullscreen/DenoiseMaterial.js';
 export * from './materials/surface/FogVolumeMaterial.js';
+export * from './materials/surface/SubsurfaceScatteringMaterial.js';
+export * from './materials/surface/VolumetricCloudMaterial.js';
 
 // deprecated
 export * from './materials/pathtracing/PhysicalPathTracingMaterial.js';
