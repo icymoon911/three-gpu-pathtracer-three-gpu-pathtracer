@@ -2,7 +2,7 @@ import { DataTexture, RGBAFormat, ClampToEdgeWrapping, FloatType, FrontSide, Bac
 import { getTextureHash } from '../core/utils/sceneUpdateUtils.js';
 import { bufferToHash } from '../utils/bufferToHash.js';
 
-export const MATERIAL_PIXELS = 47;
+export const MATERIAL_PIXELS = 49;
 const MATERIAL_STRIDE = MATERIAL_PIXELS * 4;
 
 class MaterialFeatures {
@@ -165,6 +165,16 @@ export class MaterialsTexture extends DataTexture {
 				floatArray[ index + 0 * 4 + 1 ] = m.color.g;
 				floatArray[ index + 0 * 4 + 2 ] = m.color.b;
 
+				// sample 1 - cloud parameters (used when isVolumetricCloudMaterial)
+				if ( m.isVolumetricCloudMaterial ) {
+
+					floatArray[ index + 1 * 4 + 0 ] = getField( m, 'noiseScale', 1.0 );
+					floatArray[ index + 1 * 4 + 1 ] = getField( m, 'noiseOctaves', 4 );
+					floatArray[ index + 1 * 4 + 2 ] = getField( m, 'coverage', 0.5 );
+					floatArray[ index + 1 * 4 + 3 ] = getField( m, 'windSpeed', 0.1 );
+
+				}
+
 				// sample 2 .a
 				floatArray[ index + 2 * 4 + 3 ] = getField( m, 'emissiveIntensity', 0.0 );
 
@@ -181,7 +191,8 @@ export class MaterialsTexture extends DataTexture {
 				floatArray[ index + 13 * 4 + 3 ] = 0.0;
 
 				// sample 14 .b
-				floatArray[ index + 14 * 4 + 2 ] = 1 << 2;
+				const fogFlags = m.isVolumetricCloudMaterial ? ( 1 << 2 ) | ( 1 << 3 ) : ( 1 << 2 );
+				floatArray[ index + 14 * 4 + 2 ] = fogFlags;
 
 				index += MATERIAL_STRIDE;
 				continue;
@@ -382,7 +393,28 @@ export class MaterialsTexture extends DataTexture {
 			floatArray[ index ++ ] = Number( m.vertexColors ) | ( Number( m.flatShading ) << 1 ); // vertexColors & flatShading
 			floatArray[ index ++ ] = Number( m.transparent ); // transparent
 
-			// map transform 15
+			// sample 15 - subsurface scattering color and thickness
+			if ( 'subsurfaceColor' in m && m.subsurfaceColor ) {
+
+				floatArray[ index ++ ] = m.subsurfaceColor.r;
+				floatArray[ index ++ ] = m.subsurfaceColor.g;
+				floatArray[ index ++ ] = m.subsurfaceColor.b;
+
+			} else {
+
+				floatArray[ index ++ ] = 0.0;
+				floatArray[ index ++ ] = 0.0;
+				floatArray[ index ++ ] = 0.0;
+
+			}
+
+			floatArray[ index ++ ] = getField( m, 'thickness', 0.0 );
+
+			// sample 16 - subsurface scattering scale
+			floatArray[ index ++ ] = getField( m, 'subsurfaceScale', 1.0 );
+			index += 3; // padding
+
+			// map transform 17
 			index += writeTextureMatrixToArray( m, 'map', floatArray, index );
 
 			// metalnessMap transform 17

@@ -220,6 +220,64 @@ export const bsdf_functions = /* glsl */`
 
 	}
 
+	// subsurface scattering
+	// Approximate SSS using a dipole diffusion model with wrap lighting
+	float subsurfaceEval( vec3 wo, vec3 wi, vec3 wh, SurfaceRecord surf, inout vec3 color ) {
+
+		float thickness = surf.thickness;
+		if ( thickness <= 0.0 ) return 0.0;
+
+		// thickness attenuation: thinner surfaces transmit more light
+		float transmitFactor = exp( - thickness * surf.subsurfaceScale );
+
+		// wrap diffuse for light entering from the other side
+		// when wi.z < 0, light is coming from behind the surface
+		float wrap = 0.5;
+		float NdotL = wi.z;
+		float wrappedNdotL = max( 0.0, ( NdotL + wrap ) / ( 1.0 + wrap ) );
+
+		// for back-side illumination, use the transmitted component
+		float backScatter = max( 0.0, - wi.z ) * transmitFactor;
+
+		// combine front and back scattering
+		float scatter = wrappedNdotL + backScatter;
+
+		// apply subsurface color
+		vec3 sssColor = surf.subsurfaceColor * surf.color;
+
+		// Fresnel effect at the surface
+		float F = schlickFresnel( wo.z, 0.04 );
+		color += ( 1.0 - F ) * sssColor * scatter / PI;
+
+		// PDF: cosine-weighted hemisphere
+		return abs( wi.z ) / PI;
+
+	}
+
+	vec3 subsurfaceDirection( vec3 wo, SurfaceRecord surf ) {
+
+		float thickness = surf.thickness;
+		float transmitProb = exp( - thickness * surf.subsurfaceScale );
+
+		// randomly choose between front-side diffuse and back-side transmission
+		if ( rand( 17 ) < transmitProb ) {
+
+			// sample from the back side (transmission through the surface)
+			vec3 dir = sampleSphere( rand2( 18 ) );
+			dir.z -= 1.0; // bias toward back hemisphere
+			return normalize( dir );
+
+		} else {
+
+			// sample from the front side (diffuse reflection)
+			vec3 dir = sampleSphere( rand2( 18 ) );
+			dir.z += 1.0; // bias toward front hemisphere
+			return normalize( dir );
+
+		}
+
+	}
+
 	// sheen
 	vec3 sheenColor( vec3 wo, vec3 wi, vec3 wh, SurfaceRecord surf ) {
 
@@ -242,7 +300,7 @@ export const bsdf_functions = /* glsl */`
 	// bsdf
 	void getLobeWeights(
 		vec3 wo, vec3 wi, vec3 wh, vec3 clearcoatWo, SurfaceRecord surf,
-		inout float diffuseWeight, inout float specularWeight, inout float transmissionWeight, inout float clearcoatWeight
+		inout float diffuseWeight, inout float specularWeight, inout float transmissionWeight, inout float clearcoatWeight, inout float subsurfaceWeight
 	) {
 
 		float metalness = surf.metalness;
@@ -253,21 +311,26 @@ export const bsdf_functions = /* glsl */`
 		float transSpecularProb = mix( max( 0.25, fEstimate ), 1.0, metalness );
 		float diffSpecularProb = 0.5 + 0.5 * metalness;
 
-		diffuseWeight = ( 1.0 - transmission ) * ( 1.0 - diffSpecularProb );
+		// SSS probability based on thickness
+		float sssFactor = surf.thickness > 0.0 ? clamp( 1.0 - exp( - surf.thickness * surf.subsurfaceScale * 0.1 ), 0.0, 1.0 ) : 0.0;
+
+		diffuseWeight = ( 1.0 - transmission ) * ( 1.0 - diffSpecularProb ) * ( 1.0 - sssFactor );
 		specularWeight = transmission * transSpecularProb + ( 1.0 - transmission ) * diffSpecularProb;
 		transmissionWeight = transmission * ( 1.0 - transSpecularProb );
 		clearcoatWeight = surf.clearcoat * schlickFresnel( clearcoatWo.z, 0.04 );
+		subsurfaceWeight = ( 1.0 - transmission ) * ( 1.0 - diffSpecularProb ) * sssFactor;
 
-		float totalWeight = diffuseWeight + specularWeight + transmissionWeight + clearcoatWeight;
+		float totalWeight = diffuseWeight + specularWeight + transmissionWeight + clearcoatWeight + subsurfaceWeight;
 		diffuseWeight /= totalWeight;
 		specularWeight /= totalWeight;
 		transmissionWeight /= totalWeight;
 		clearcoatWeight /= totalWeight;
+		subsurfaceWeight /= totalWeight;
 	}
 
 	float bsdfEval(
 		vec3 wo, vec3 clearcoatWo, vec3 wi, vec3 clearcoatWi, SurfaceRecord surf,
-		float diffuseWeight, float specularWeight, float transmissionWeight, float clearcoatWeight, inout float specularPdf, inout vec3 color
+		float diffuseWeight, float specularWeight, float transmissionWeight, float clearcoatWeight, float subsurfaceWeight, inout float specularPdf, inout vec3 color
 	) {
 
 		float metalness = surf.metalness;
@@ -277,6 +340,7 @@ export const bsdf_functions = /* glsl */`
 		float dpdf = 0.0;
 		float tpdf = 0.0;
 		float cpdf = 0.0;
+		float sspdf = 0.0;
 		color = vec3( 0.0 );
 
 		vec3 halfVector = getHalfVector( wi, wo, surf.eta );
@@ -305,6 +369,13 @@ export const bsdf_functions = /* glsl */`
 
 		}
 
+		// subsurface scattering
+		if ( subsurfaceWeight > 0.0 ) {
+
+			sspdf = subsurfaceEval( wo, wi, halfVector, surf, color );
+
+		}
+
 		// sheen
 		color *= mix( 1.0, sheenAlbedoScaling( wo, wi, surf ), surf.sheen );
 		color += sheenColor( wo, wi, halfVector, surf ) * surf.sheen;
@@ -321,7 +392,8 @@ export const bsdf_functions = /* glsl */`
 			dpdf * diffuseWeight
 			+ spdf * specularWeight
 			+ tpdf * transmissionWeight
-			+ cpdf * clearcoatWeight;
+			+ cpdf * clearcoatWeight
+			+ sspdf * subsurfaceWeight;
 
 		// retrieve specular rays for the shadows flag
 		specularPdf = spdf * specularWeight + cpdf * clearcoatWeight;
@@ -350,10 +422,11 @@ export const bsdf_functions = /* glsl */`
 		float specularWeight;
 		float transmissionWeight;
 		float clearcoatWeight;
-		getLobeWeights( wo, wi, wh, clearcoatWo, surf, diffuseWeight, specularWeight, transmissionWeight, clearcoatWeight );
+		float subsurfaceWeight;
+		getLobeWeights( wo, wi, wh, clearcoatWo, surf, diffuseWeight, specularWeight, transmissionWeight, clearcoatWeight, subsurfaceWeight );
 
 		float specularPdf;
-		return bsdfEval( wo, clearcoatWo, wi, clearcoatWi, surf, diffuseWeight, specularWeight, transmissionWeight, clearcoatWeight, specularPdf, color );
+		return bsdfEval( wo, clearcoatWo, wi, clearcoatWi, surf, diffuseWeight, specularWeight, transmissionWeight, clearcoatWeight, subsurfaceWeight, specularPdf, color );
 
 	}
 
@@ -381,28 +454,32 @@ export const bsdf_functions = /* glsl */`
 		float specularWeight;
 		float transmissionWeight;
 		float clearcoatWeight;
+		float subsurfaceWeight;
 		// using normal and basically-reflected ray since we don't have proper half vector here
-		getLobeWeights( wo, wo, vec3( 0, 0, 1 ), clearcoatWo, surf, diffuseWeight, specularWeight, transmissionWeight, clearcoatWeight );
+		getLobeWeights( wo, wo, vec3( 0, 0, 1 ), clearcoatWo, surf, diffuseWeight, specularWeight, transmissionWeight, clearcoatWeight, subsurfaceWeight );
 
-		float pdf[4];
+		float pdf[5];
 		pdf[0] = diffuseWeight;
 		pdf[1] = specularWeight;
 		pdf[2] = transmissionWeight;
 		pdf[3] = clearcoatWeight;
+		pdf[4] = subsurfaceWeight;
 
-		float cdf[4];
+		float cdf[5];
 		cdf[0] = pdf[0];
 		cdf[1] = pdf[1] + cdf[0];
 		cdf[2] = pdf[2] + cdf[1];
 		cdf[3] = pdf[3] + cdf[2];
+		cdf[4] = pdf[4] + cdf[3];
 
-		if( cdf[3] != 0.0 ) {
+		if( cdf[4] != 0.0 ) {
 
-			float invMaxCdf = 1.0 / cdf[3];
+			float invMaxCdf = 1.0 / cdf[4];
 			cdf[0] *= invMaxCdf;
 			cdf[1] *= invMaxCdf;
 			cdf[2] *= invMaxCdf;
 			cdf[3] *= invMaxCdf;
+			cdf[4] *= invMaxCdf;
 
 		} else {
 
@@ -410,6 +487,7 @@ export const bsdf_functions = /* glsl */`
 			cdf[1] = 0.0;
 			cdf[2] = 0.0;
 			cdf[3] = 0.0;
+			cdf[4] = 0.0;
 
 		}
 
@@ -437,10 +515,15 @@ export const bsdf_functions = /* glsl */`
 			clearcoatWi = clearcoatDirection( clearcoatWo, surf );
 			wi = normalize( invBasis * normalize( clearcoatNormalBasis * clearcoatWi ) );
 
+		} else { // subsurface scattering
+
+			wi = subsurfaceDirection( wo, surf );
+			clearcoatWi = normalize( clearcoatInvBasis * normalize( normalBasis * wi ) );
+
 		}
 
 		ScatterRecord result;
-		result.pdf = bsdfEval( wo, clearcoatWo, wi, clearcoatWi, surf, diffuseWeight, specularWeight, transmissionWeight, clearcoatWeight, result.specularPdf, result.color );
+		result.pdf = bsdfEval( wo, clearcoatWo, wi, clearcoatWi, surf, diffuseWeight, specularWeight, transmissionWeight, clearcoatWeight, subsurfaceWeight, result.specularPdf, result.color );
 		result.direction = normalize( surf.normalBasis * wi );
 
 		return result;

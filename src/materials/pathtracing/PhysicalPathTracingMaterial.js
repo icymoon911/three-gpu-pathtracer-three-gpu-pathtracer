@@ -250,10 +250,14 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 				${ SamplingGLSL.equirect_functions }
 				${ SamplingGLSL.light_sampling_functions }
 
+				// render structs (needed by fog/cloud functions for Ray type)
+				${ RenderGLSL.render_structs }
+
 				${ PTBVHGLSL.inside_fog_volume_function }
 				${ BSDFGLSL.ggx_functions }
 				${ BSDFGLSL.sheen_functions }
 				${ BSDFGLSL.iridescence_functions }
+				${ BSDFGLSL.cloud_noise_functions }
 				${ BSDFGLSL.fog_functions }
 				${ BSDFGLSL.bsdf_functions }
 
@@ -287,7 +291,6 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 
 				}
 
-				${ RenderGLSL.render_structs }
 				${ RenderGLSL.camera_util_functions }
 				${ RenderGLSL.trace_scene_function }
 				${ RenderGLSL.attenuate_hit_function }

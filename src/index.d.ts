@@ -11,6 +11,7 @@ import {
 	Object3D,
 	Texture,
 	Vector2,
+	Vector3,
 	WebGLRenderer,
 	WebGLRenderTarget,
 	BufferGeometry,
@@ -154,6 +155,12 @@ export class WebGLPathTracer {
 	updateMaterials(): void;
 	updateLights(): void;
 	updateEnvironment(): void;
+	updateScene( options?: {
+		materials?: boolean;
+		lights?: boolean;
+		environment?: boolean;
+		camera?: boolean;
+	} ): void;
 	renderSample(): void;
 	reset(): void;
 	dispose(): void;
@@ -170,6 +177,13 @@ export class PhysicalCamera extends PerspectiveCamera {
 	apertureBlades: number;
 	apertureRotation: number;
 	anamorphicRatio: number;
+
+	// auto-focus
+	autoFocus: boolean;
+	focusTarget: Vector3;
+	setFocusTarget( target: Vector3 ): PhysicalCamera;
+	clearFocusTarget(): PhysicalCamera;
+	updateFocus( scene?: Scene | Object3D ): PhysicalCamera;
 
 }
 
@@ -271,5 +285,52 @@ export class FogVolumeMaterial extends MeshStandardMaterial {
 	readonly isFogVolumeMaterial: true;
 
 	density: number;
+
+}
+
+export interface VolumetricCloudMaterialParameters extends MeshStandardMaterialParameters {
+
+	density?: number;
+	noiseScale?: number;
+	noiseOctaves?: number;
+	coverage?: number;
+	windSpeed?: number;
+	windDirection?: number;
+
+}
+
+export class VolumetricCloudMaterial extends MeshStandardMaterial {
+
+	constructor( parameters?: VolumetricCloudMaterialParameters );
+
+	readonly isFogVolumeMaterial: true;
+	readonly isVolumetricCloudMaterial: true;
+
+	density: number;
+	cloudColor: Color;
+	noiseScale: number;
+	noiseOctaves: number;
+	coverage: number;
+	windSpeed: number;
+	windDirection: number;
+
+}
+
+// EXR exporter
+
+export class EXRExporter {
+
+	type: 'float' | 'half';
+
+	constructor();
+
+	export( renderer: WebGLRenderer, renderTarget: WebGLRenderTarget, options?: {
+		type?: 'float' | 'half';
+		channels?: 3 | 4;
+	} ): ArrayBuffer;
+
+	encodeEXR( pixels: Float32Array, width: number, height: number, numChannels?: 3 | 4, useHalf?: boolean ): ArrayBuffer;
+	createDownloadURL( exrData: ArrayBuffer ): string;
+	download( exrData: ArrayBuffer, filename?: string ): void;
 
 }

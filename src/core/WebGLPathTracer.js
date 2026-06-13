@@ -209,6 +209,14 @@ export class WebGLPathTracer {
 	updateCamera() {
 
 		const camera = this.camera;
+
+		// apply auto-focus if enabled
+		if ( camera.autoFocus ) {
+
+			camera.updateFocus( this.scene );
+
+		}
+
 		camera.updateMatrixWorld();
 
 		this._pathTracer.setCamera( camera );
@@ -228,9 +236,14 @@ export class WebGLPathTracer {
 		// textures array because we need to pass the textures array into the
 		// material target
 		const textures = getTextures( materials );
-		material.textures.setTextures( renderer, textures, textureSize.x, textureSize.y );
-		material.materials.updateFrom( materials, textures );
-		this.reset();
+		const texturesChanged = material.textures.setTextures( renderer, textures, textureSize.x, textureSize.y );
+		const materialsChanged = material.materials.updateFrom( materials, textures );
+
+		if ( texturesChanged || materialsChanged ) {
+
+			this.reset();
+
+		}
 
 	}
 
@@ -242,9 +255,14 @@ export class WebGLPathTracer {
 
 		const lights = getLights( scene );
 		const iesTextures = getIesTextures( lights );
-		material.lights.updateFrom( lights, iesTextures );
-		material.iesProfiles.setTextures( renderer, iesTextures );
-		this.reset();
+		const lightsChanged = material.lights.updateFrom( lights, iesTextures );
+		const iesChanged = material.iesProfiles.setTextures( renderer, iesTextures );
+
+		if ( lightsChanged || iesChanged ) {
+
+			this.reset();
+
+		}
 
 	}
 
@@ -252,6 +270,7 @@ export class WebGLPathTracer {
 
 		const scene = this.scene;
 		const material = this._pathTracer.material;
+		let changed = false;
 
 		if ( this._internalBackground ) {
 
@@ -261,11 +280,14 @@ export class WebGLPathTracer {
 		}
 
 		// update scene background
+		const prevBlur = material.backgroundBlur;
+		const prevIntensity = material.backgroundIntensity;
 		material.backgroundBlur = scene.backgroundBlurriness;
 		material.backgroundIntensity = scene.backgroundIntensity ?? 1;
 		material.backgroundRotation.makeRotationFromEuler( scene.backgroundRotation ).invert();
 		if ( scene.background === null ) {
 
+			if ( material.backgroundMap !== null || material.backgroundAlpha !== 0 ) changed = true;
 			material.backgroundMap = null;
 			material.backgroundAlpha = 0;
 
@@ -280,6 +302,7 @@ export class WebGLPathTracer {
 				colorBackground.topColor.set( scene.background );
 				colorBackground.bottomColor.set( scene.background );
 				colorBackground.update();
+				changed = true;
 
 			}
 
@@ -295,17 +318,22 @@ export class WebGLPathTracer {
 				this._internalBackground = background;
 				material.backgroundMap = background;
 				material.backgroundAlpha = 1;
+				changed = true;
 
 			}
 
 		} else {
 
+			if ( material.backgroundMap !== scene.background ) changed = true;
 			material.backgroundMap = scene.background;
 			material.backgroundAlpha = 1;
 
 		}
 
+		if ( prevBlur !== material.backgroundBlur || prevIntensity !== material.backgroundIntensity ) changed = true;
+
 		// update scene environment
+		const prevEnvIntensity = material.environmentIntensity;
 		material.environmentIntensity = scene.environment !== null ? ( scene.environmentIntensity ?? 1 ) : 0;
 		material.environmentRotation.makeRotationFromEuler( scene.environmentRotation ).invert();
 		if ( this._previousEnvironment !== scene.environment ) {
@@ -328,11 +356,48 @@ export class WebGLPathTracer {
 
 			}
 
+			changed = true;
+
+		} else if ( prevEnvIntensity !== material.environmentIntensity ) {
+
+			changed = true;
+
 		}
 
 		this._previousEnvironment = scene.environment;
 		this._previousBackground = scene.background;
-		this.reset();
+
+		if ( changed ) {
+
+			this.reset();
+
+		}
+
+	}
+
+	/**
+	 * Perform an incremental scene update, only updating the specified components.
+	 * This avoids full shader recompilation when only specific parts of the scene change.
+	 *
+	 * @param {Object} options - Which components to update
+	 * @param {boolean} [options.materials=true] - Update material textures and parameters
+	 * @param {boolean} [options.lights=true] - Update lights and IES profiles
+	 * @param {boolean} [options.environment=true] - Update environment map and background
+	 * @param {boolean} [options.camera=false] - Update camera (also triggers reset)
+	 */
+	updateScene( options = {} ) {
+
+		const {
+			materials = true,
+			lights = true,
+			environment = true,
+			camera = false,
+		} = options;
+
+		if ( camera ) this.updateCamera();
+		if ( materials ) this.updateMaterials();
+		if ( lights ) this.updateLights();
+		if ( environment ) this.updateEnvironment();
 
 	}
 

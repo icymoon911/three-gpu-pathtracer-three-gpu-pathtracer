@@ -21,7 +21,18 @@ export const trace_scene_function = /* glsl */`
 
 			// offset the distance so we don't run into issues with particles on the same surface
 			// as other objects
-			float particleDist = intersectFogVolume( fogMaterial, rand( 1 ) );
+			float particleDist;
+			if ( fogMaterial.isVolumetricCloud ) {
+
+				// use noise-based cloud density for volumetric clouds
+				particleDist = intersectCloudVolume( fogMaterial, ray, rand( 1 ) );
+
+			} else {
+
+				particleDist = intersectFogVolume( fogMaterial, rand( 1 ) );
+
+			}
+
 			if ( particleDist + RAY_OFFSET < surfaceHit.dist ) {
 
 				surfaceHit.side = 1.0;

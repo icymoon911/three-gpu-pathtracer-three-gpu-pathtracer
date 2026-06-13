@@ -292,6 +292,11 @@ export const get_surface_record_function = /* glsl */`
 		surf.specularColor = specularColor;
 		surf.specularIntensity = specularIntensity;
 
+		// subsurface scattering
+		surf.subsurfaceColor = material.subsurfaceColor;
+		surf.thickness = material.thickness;
+		surf.subsurfaceScale = material.subsurfaceScale;
+
 		// apply perceptual roughness factor from gltf. sheen perceptual roughness is
 		// applied by its brdf function
 		// https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#microfacet-surfaces

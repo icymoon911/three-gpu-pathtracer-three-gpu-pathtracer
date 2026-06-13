@@ -65,6 +65,18 @@ export const material_struct = /* glsl */ `
 		bool flatShading;
 		bool transparent;
 		bool fogVolume;
+		bool isVolumetricCloud;
+
+		// subsurface scattering
+		vec3 subsurfaceColor;
+		float thickness;
+		float subsurfaceScale;
+
+		// volumetric cloud parameters (stored in sample 1 when isVolumetricCloudMaterial)
+		float cloudNoiseScale;
+		float cloudNoiseOctaves;
+		float cloudCoverage;
+		float cloudWindSpeed;
 
 		mat3 mapTransform;
 		mat3 metalnessMapTransform;
@@ -119,6 +131,8 @@ export const material_struct = /* glsl */ `
 		vec4 s12 = texelFetch1D( tex, i + 12u );
 		vec4 s13 = texelFetch1D( tex, i + 13u );
 		vec4 s14 = texelFetch1D( tex, i + 14u );
+		vec4 s15 = texelFetch1D( tex, i + 15u );
+		vec4 s16 = texelFetch1D( tex, i + 16u );
 
 		Material m;
 		m.color = s0.rgb;
@@ -181,9 +195,21 @@ export const material_struct = /* glsl */ `
 		m.vertexColors = bool( int( s14.b ) & 1 );
 		m.flatShading = bool( int( s14.b ) & 2 );
 		m.fogVolume = bool( int( s14.b ) & 4 );
+		m.isVolumetricCloud = bool( int( s14.b ) & 8 );
 		m.transparent = bool( s14.a );
 
-		uint firstTextureTransformIdx = i + 15u;
+		// subsurface scattering (sample 15 and 16)
+		m.subsurfaceColor = s15.rgb;
+		m.thickness = s15.a;
+		m.subsurfaceScale = s16.r;
+
+		// volumetric cloud parameters (stored in sample 1, only used for cloud materials)
+		m.cloudNoiseScale = s1.r;
+		m.cloudNoiseOctaves = s1.g;
+		m.cloudCoverage = s1.b;
+		m.cloudWindSpeed = s1.a;
+
+		uint firstTextureTransformIdx = i + 17u;
 
 		// mat3( 1.0 ) is an identity matrix
 		m.mapTransform = m.map == - 1 ? mat3( 1.0 ) : readTextureTransform( tex, firstTextureTransformIdx );
