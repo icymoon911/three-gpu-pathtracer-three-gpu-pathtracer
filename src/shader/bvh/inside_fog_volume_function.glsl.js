@@ -1,3 +1,10 @@
+// @module inside_fog_volume_function
+// @description BVH fog volume intersection: walks the BVH to find enclosing fog volumes.
+// @provides isMaterialFogVolume, bvhIntersectFogVolumeHit
+// @depends material_struct (Material, readMaterialInfo), texture_sample_functions (texelFetch1D, uTexelFetch1D),
+//   util_functions (stepRayOrigin), BVHShaderGLSL (bvhIntersectFirstHit)
+// @included_by PhysicalPathTracingMaterial
+
 export const inside_fog_volume_function = /* glsl */`
 
 #ifndef FOG_CHECK_ITERATIONS

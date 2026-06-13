@@ -1,3 +1,10 @@
+// @module light_sampling_functions
+// @description Light sampling: attenuation, photometric profiles, light intersection, random light sample.
+// @provides getSpotAttenuation, getDistanceAttenuation, getPhotometricAttenuation, LightRecord,
+//   intersectLightAtIndex, randomAreaLightSample, randomSpotLightSample, randomLightSample
+// @depends lights_struct (Light, readLightInfo, light types), shape_intersection_functions
+// @included_by direct_light_contribution_function, PhysicalPathTracingMaterial
+
 export const light_sampling_functions = /* glsl */`
 
 	float getSpotAttenuation( const in float coneCosine, const in float penumbraCosine, const in float angleCosine ) {

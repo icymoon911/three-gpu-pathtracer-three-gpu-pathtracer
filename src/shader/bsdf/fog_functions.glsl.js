@@ -1,3 +1,11 @@
+// @module fog_strategy
+// @description Volumetric fog BSDF strategy.
+//   Provides fog volume intersection and isotropic scattering sampling.
+// @provides intersectFogVolume, sampleFogVolume
+// @depends material_struct (Material)
+// @depends surface_record_struct (ScatterRecord)
+// @included_by bsdf_functions, trace_scene_function
+
 export const fog_functions = /* glsl */`
 
 	// returns the hit distance given the material density

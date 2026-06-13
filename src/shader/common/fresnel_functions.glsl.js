@@ -1,3 +1,10 @@
+// @module fresnel_functions
+// @description Fresnel equations and approximations for dielectric and metallic surfaces.
+// @provides totalInternalReflection, schlickFresnel (three overloads), dielectricFresnel,
+//   iorRatioToF0, evaluateFresnel, disneyFresnel
+// @depends (none)
+// @included_by bsdf_functions, metallic_strategy, transmissive_strategy, clearcoat_strategy, iridescence_strategy
+
 export const fresnel_functions = /* glsl */`
 
 	bool totalInternalReflection( float cosTheta, float eta ) {

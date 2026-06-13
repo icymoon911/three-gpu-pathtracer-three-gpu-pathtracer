@@ -5,6 +5,12 @@ import {
 	BVHShaderGLSL,
 } from 'three-mesh-bvh';
 
+// Feature mixins
+import { TransmissionMixin, TRANSMISSION_GLSL_INCLUDE } from './mixins/TransmissionMixin.js';
+import { SheenMixin, SHEEN_GLSL_INCLUDE } from './mixins/SheenMixin.js';
+import { ClearcoatMixin, CLEARCOAT_GLSL_INCLUDE } from './mixins/ClearcoatMixin.js';
+import { IridescenceMixin, IRIDESCENCE_GLSL_INCLUDE } from './mixins/IridescenceMixin.js';
+
 // uniforms
 import { PhysicalCameraUniform } from '../../uniforms/PhysicalCameraUniform.js';
 import { EquirectHdrInfoUniform } from '../../uniforms/EquirectHdrInfoUniform.js';
@@ -26,6 +32,25 @@ import * as PTBVHGLSL from '../../shader/bvh/index.js';
 // path tracer glsl
 import * as RenderGLSL from './glsl/index.js';
 
+// Aggregate all feature mixin defines and uniforms
+const FEATURE_DEFINES = {
+
+	...TransmissionMixin.FEATURE_DEFINES,
+	...SheenMixin.FEATURE_DEFINES,
+	...ClearcoatMixin.FEATURE_DEFINES,
+	...IridescenceMixin.FEATURE_DEFINES,
+
+};
+
+const FEATURE_UNIFORMS = {
+
+	...TransmissionMixin.FEATURE_UNIFORMS,
+	...SheenMixin.FEATURE_UNIFORMS,
+	...ClearcoatMixin.FEATURE_UNIFORMS,
+	...IridescenceMixin.FEATURE_UNIFORMS,
+
+};
+
 export class PhysicalPathTracingMaterial extends MaterialBase {
 
 	onBeforeRender() {
@@ -37,6 +62,14 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 	}
 
 	constructor( parameters ) {
+
+		// Feature-specific GLSL includes injected at marker positions
+		const FEATURE_GLSL_INCLUDES = [
+			TRANSMISSION_GLSL_INCLUDE,
+			SHEEN_GLSL_INCLUDE,
+			CLEARCOAT_GLSL_INCLUDE,
+			IRIDESCENCE_GLSL_INCLUDE,
+		].join( '\n' );
 
 		super( {
 
@@ -67,6 +100,9 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 				ATTR_UV: 2,
 				ATTR_COLOR: 3,
 				MATERIAL_PIXELS: MATERIAL_PIXELS,
+
+				// feature mixin defines
+				...FEATURE_DEFINES,
 			},
 
 			uniforms: {
@@ -75,7 +111,6 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 				resolution: { value: new Vector2() },
 				opacity: { value: 1 },
 				bounces: { value: 10 },
-				transmissiveBounces: { value: 10 },
 				filterGlossyFactor: { value: 0 },
 
 				// camera uniforms
@@ -113,6 +148,9 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 				sobolTexture: { value: null },
 				stratifiedTexture: { value: new StratifiedSamplesTexture() },
 				stratifiedOffsetTexture: { value: new BlueNoiseTexture( 64, 1 ) },
+
+				// feature mixin uniforms (transmission, sheen, clearcoat, iridescence)
+				...FEATURE_UNIFORMS,
 			},
 
 			vertexShader: /* glsl */`
@@ -251,11 +289,15 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 				${ SamplingGLSL.light_sampling_functions }
 
 				${ PTBVHGLSL.inside_fog_volume_function }
-				${ BSDFGLSL.ggx_functions }
-				${ BSDFGLSL.sheen_functions }
-				${ BSDFGLSL.iridescence_functions }
 				${ BSDFGLSL.fog_functions }
+
+				// BSDF strategies: composed from ggx_base + metallic + transmissive + sheen +
+				// clearcoat + iridescence strategies, with the coordinator providing diffuse,
+				// lobe weight computation, and the unified bsdfSample/bsdfResult interface.
 				${ BSDFGLSL.bsdf_functions }
+
+				// Feature-specific GLSL extensions from material mixins
+				${ FEATURE_GLSL_INCLUDES }
 
 				float applyFilteredGlossy( float roughness, float accumulatedRoughness ) {
 
@@ -487,7 +529,7 @@ export class PhysicalPathTracingMaterial extends MaterialBase {
 						// TODO: handle transmissive surfaces
 						if ( ! surf.volumeParticle && ! isBelowSurface ) {
 
-							// determine if this is a rough normal or not by checking how far off straight up it is
+							// determine if this is a rough normal or not by determining how far off straight up it is
 							vec3 halfVector = normalize( - ray.direction + scatterRec.direction );
 							state.accumulatedRoughness += max(
 								sin( acosApprox( dot( halfVector, surf.normal ) ) ),

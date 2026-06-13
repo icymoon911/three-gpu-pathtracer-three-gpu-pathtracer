@@ -1,3 +1,8 @@
+// @module texture_sample_functions
+// @description Texture sampling utilities for 1D attribute textures and barycentric interpolation.
+// @provides texelFetch1D, uTexelFetch1D, textureSampleBarycoord
+// @depends (none)
+// @included_by attenuate_hit_function, get_surface_record_function, lights_struct, material_struct
 
 export const texture_sample_functions = /*glsl */`
 

@@ -1,3 +1,10 @@
+// @module lights_struct
+// @description Light and LightsInfo structs with readLightInfo decoder.
+// @provides RECT_AREA_LIGHT_TYPE, CIRC_AREA_LIGHT_TYPE, SPOT_LIGHT_TYPE, DIR_LIGHT_TYPE,
+//   POINT_LIGHT_TYPE, LightsInfo, Light, readLightInfo
+// @depends texture_sample_functions (texelFetch1D)
+// @included_by light_sampling_functions, direct_light_contribution_function, PhysicalPathTracingMaterial
+
 export const lights_struct = /* glsl */`
 
 	#define RECT_AREA_LIGHT_TYPE 0

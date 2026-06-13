@@ -1,5 +1,5 @@
 import { DataTexture, RGBAFormat, ClampToEdgeWrapping, FloatType, FrontSide, BackSide, DoubleSide, NearestFilter } from 'three';
-import { getTextureHash } from '../core/utils/sceneUpdateUtils.js';
+import { getTextureHash } from '../core/utils/textureUtils.js';
 import { bufferToHash } from '../utils/bufferToHash.js';
 
 export const MATERIAL_PIXELS = 47;

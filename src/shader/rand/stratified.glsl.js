@@ -1,3 +1,9 @@
+// @module stratified_functions
+// @description Stratified random sampling using a pre-generated texture with blue noise jitter.
+// @provides rng_initialize, rand, rand2, rand3, rand4
+// @depends (none — uses stratifiedTexture and stratifiedOffsetTexture uniforms)
+// @included_by PhysicalPathTracingMaterial (when RANDOM_TYPE == 2)
+
 export const stratified_functions = /* glsl */`
 
 	uniform sampler2D stratifiedTexture;

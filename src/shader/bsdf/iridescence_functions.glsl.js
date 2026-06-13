@@ -1,3 +1,11 @@
+// @module iridescence_strategy
+// @description Thin-film iridescence strategy using analytic spectral integration.
+//   Computes wavelength-dependent interference colors for thin-film materials.
+// @provides evalIridescence, evalSensitivity, fresnel0ToIor, iorToFresnel0 (two overloads), XYZ_TO_REC709
+// @depends fresnel_functions (schlickFresnel)
+// @depends math_functions (square)
+// @included_by bsdf_functions, metallic_strategy
+
 export const iridescence_functions = /* glsl */`
 
 	// XYZ to sRGB color space

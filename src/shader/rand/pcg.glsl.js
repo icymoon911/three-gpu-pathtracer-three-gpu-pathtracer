@@ -1,3 +1,9 @@
+// @module pcg_functions
+// @description PCG (Permuted Congruential Generator) random number generator.
+// @provides rng_initialize, pcg4d, pcgRand, pcgRand2, pcgRand3, pcgRand4
+// @depends (none)
+// @included_by PhysicalPathTracingMaterial (when RANDOM_TYPE == 0 or 1)
+
 export const pcg_functions = /* glsl */`
 
 	// https://www.shadertoy.com/view/wltcRS

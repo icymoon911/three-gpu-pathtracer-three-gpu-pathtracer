@@ -235,6 +235,13 @@ export class BlurredEnvMapGenerator {
 declare class MaterialBase extends ShaderMaterial {
 
 	setDefine( name: string, value: any ): boolean;
+	removeDefine( name: string ): boolean;
+	hasDefine( name: string ): boolean;
+	getDefine( name: string ): any;
+	applyDefines( defines: Record<string, any> ): boolean;
+	applyUniforms( uniforms: Record<string, { value: any }> ): void;
+	hasUniform( name: string ): boolean;
+	getUniform( name: string ): any;
 
 }
 

@@ -1,3 +1,9 @@
+// @module ray_any_hit_function
+// @description BVH any-hit intersection test (for shadow rays).
+// @provides bvhIntersectAnyHit
+// @depends BVHShaderGLSL (intersectsBVHNodeBounds, intersectTriangles, bvh)
+// @included_by (available for shadow ray optimization, currently unused in main shader)
+
 export const ray_any_hit_function = /* glsl */`
 
 	bool bvhIntersectAnyHit(

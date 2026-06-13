@@ -1,3 +1,10 @@
+// @module camera_util_functions
+// @description Camera ray construction: perspective, orthographic, equirectangular, and DOF.
+// @provides ndcToRayOrigin, getCameraRay
+// @depends util_functions (tentFilter), shape_sampling_functions (sampleAperture),
+//   math_functions (rotateVector), camera_struct (PhysicalCamera), render_structs (Ray)
+// @included_by PhysicalPathTracingMaterial main()
+
 export const camera_util_functions = /* glsl */`
 
 	vec3 ndcToRayOrigin( vec2 coord ) {

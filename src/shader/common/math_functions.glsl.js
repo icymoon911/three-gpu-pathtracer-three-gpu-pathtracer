@@ -1,3 +1,9 @@
+// @module math_functions
+// @description Math helper functions for shader computations.
+// @provides acosApprox, acosSafe, saturateCos, square (four overloads), rotateVector, getBasisFromNormal
+// @depends (none)
+// @included_by bsdf_functions, bsdf_coordinator, iridescence_strategy, equirect_functions, light_sampling_functions
+
 export const math_functions = /* glsl */`
 
 	// Fast arccos approximation used to remove banding artifacts caused by numerical errors in acos.

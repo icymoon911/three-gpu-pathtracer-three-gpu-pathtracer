@@ -1,3 +1,10 @@
+// @module util_functions
+// @description Path tracing utility functions: ray stepping, half vectors, equirect mapping, MIS.
+// @provides stepRayOrigin, transmissionAttenuation, getHalfVector (two overloads),
+//   isDirectionValid, equirectDirectionToUv, equirectUvToDirection, misHeuristic, tentFilter
+// @depends (none — defines RAY_OFFSET if not already defined)
+// @included_by bsdf_functions, bsdf_coordinator, camera_util_functions, attenuate_hit_function
+
 export const util_functions = /* glsl */`
 
 	// TODO: possibly this should be renamed something related to material or path tracing logic

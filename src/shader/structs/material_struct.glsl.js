@@ -1,3 +1,9 @@
+// @module material_struct
+// @description Material struct with readMaterialInfo and readTextureTransform decoders.
+// @provides Material, readTextureTransform, readMaterialInfo
+// @depends texture_sample_functions (texelFetch1D)
+// @included_by get_surface_record_function, attenuate_hit_function, fog_strategy, trace_scene_function
+
 export const material_struct = /* glsl */ `
 
 	struct Material {

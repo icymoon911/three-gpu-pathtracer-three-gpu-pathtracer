@@ -1,3 +1,10 @@
+// @module trace_scene_function
+// @description Scene intersection: BVH first-hit with optional fog volume override.
+// @provides NO_HIT, SURFACE_HIT, LIGHT_HIT, FOG_HIT, traceScene
+// @depends render_structs (Ray, SurfaceHit), BVHShaderGLSL (bvhIntersectFirstHit),
+//   fog_strategy (intersectFogVolume) when FEATURE_FOG
+// @included_by PhysicalPathTracingMaterial main(), attenuate_hit_function
+
 export const trace_scene_function = /* glsl */`
 
 	#define NO_HIT 0

@@ -1,3 +1,12 @@
+// @module sobol_functions
+// @description Sobol quasi-random sequence generator with Owen scrambling.
+//   Provides multi-dimensional low-discrepancy samples for path tracing.
+// @provides sobol_common (SOBOL_FACTOR, SOBOL_MAX_POINTS, utility functions),
+//   sobol_point_generation (direction numbers, generateSobolPoint),
+//   sobol_functions (sobolGetSeed, sobolGetTexturePoint, sobol/sobol2/sobol3/sobol4)
+// @depends pcg_functions (for rng_initialize fallback)
+// @included_by PhysicalPathTracingMaterial (when RANDOM_TYPE == 1)
+
 // References
 // - https://jcgt.org/published/0009/04/01/
 // - Code from https://www.shadertoy.com/view/WtGyDm

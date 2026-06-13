@@ -1,3 +1,11 @@
+// @module get_surface_record_function
+// @description Surface record construction: reads material textures and populates SurfaceRecord
+//   with albedo, normals, PBR parameters (metalness, roughness, transmission, sheen, etc.).
+// @provides SKIP_SURFACE, HIT_SURFACE, getSurfaceRecord
+// @depends material_struct (Material, readMaterialInfo), surface_record_struct (SurfaceRecord),
+//   texture_sample_functions (textureSampleBarycoord), math_functions (getBasisFromNormal),
+//   fresnel_functions (iorRatioToF0), util_functions (transmissionAttenuation)
+// @included_by PhysicalPathTracingMaterial main()
 
 export const get_surface_record_function = /* glsl */`
 

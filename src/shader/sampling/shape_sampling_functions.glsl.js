@@ -1,3 +1,9 @@
+// @module shape_sampling_functions
+// @description Geometric sampling: hemisphere, triangle, circle, sphere, aperture.
+// @provides sampleHemisphere, sampleTriangle, sampleCircle, sampleSphere, sampleRegularPolygon, sampleAperture
+// @depends (none — uses PI)
+// @included_by camera_util_functions, direct_light_contribution_function, bsdf_coordinator
+
 export const shape_sampling_functions = /* glsl */`
 
 	vec3 sampleHemisphere( vec3 n, vec2 uv ) {

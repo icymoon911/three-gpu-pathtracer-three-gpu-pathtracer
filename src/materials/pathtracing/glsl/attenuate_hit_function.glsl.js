@@ -1,3 +1,11 @@
+// @module attenuate_hit_function
+// @description Shadow ray attenuation: traverses transmissive surfaces to accumulate color filtering.
+// @provides attenuateHit
+// @depends render_structs (RenderState, SurfaceHit), trace_scene_function (traceScene),
+//   material_struct (Material, readMaterialInfo), texture_sample_functions (textureSampleBarycoord),
+//   util_functions (stepRayOrigin, transmissionAttenuation)
+// @included_by direct_light_contribution_function
+
 export const attenuate_hit_function = /* glsl */`
 
 	// step through multiple surface hits and accumulate color attenuation based on transmissive surfaces

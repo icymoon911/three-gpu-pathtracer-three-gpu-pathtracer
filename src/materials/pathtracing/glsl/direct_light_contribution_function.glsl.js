@@ -1,3 +1,11 @@
+// @module direct_light_contribution_function
+// @description Next-event estimation: samples lights and environment map for direct illumination.
+// @provides directLightContribution
+// @depends light_sampling_functions (randomLightSample), attenuate_hit_function (attenuateHit),
+//   bsdf_functions (bsdfResult), equirect_functions (sampleEquirectProbability),
+//   util_functions (misHeuristic, isDirectionValid, INFINITY), render_structs (RenderState)
+// @included_by PhysicalPathTracingMaterial main() (when FEATURE_MIS)
+
 export const direct_light_contribution_function = /*glsl*/`
 
 	vec3 directLightContribution( vec3 worldWo, SurfaceRecord surf, RenderState state, vec3 rayOrigin ) {

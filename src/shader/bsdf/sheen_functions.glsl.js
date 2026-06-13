@@ -1,3 +1,11 @@
+// @module sheen_strategy
+// @description Velvet/sheen BSDF strategy for cloth-like materials.
+//   Implements the_imageworks sheen model with directional albedo scaling for energy conservation.
+// @provides velvetD, velvetG, sheenAlbedoScaling (two overloads), sheenColor, directionalAlbedoSheen
+// @depends surface_record_struct (SurfaceRecord)
+// @depends util_functions (saturateCos)
+// @included_by bsdf_functions
+
 export const sheen_functions = /* glsl */`
 
 	// See equation (2) in http://www.aconty.com/pdf/s2017_pbs_imageworks_sheen.pdf

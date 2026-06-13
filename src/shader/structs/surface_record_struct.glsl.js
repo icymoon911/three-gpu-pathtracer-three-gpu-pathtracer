@@ -1,3 +1,9 @@
+// @module surface_record_struct
+// @description SurfaceRecord and ScatterRecord structs for BSDF evaluation.
+// @provides SurfaceRecord, ScatterRecord
+// @depends (none)
+// @included_by bsdf_functions, all BSDF strategy modules, get_surface_record_function, fog_strategy
+
 export const surface_record_struct = /* glsl */`
 
 	struct SurfaceRecord {

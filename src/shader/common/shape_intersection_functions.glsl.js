@@ -1,3 +1,9 @@
+// @module shape_intersection_functions
+// @description Ray-shape intersection tests for area lights (rectangles and circles).
+// @provides intersectsRectangle, intersectsCircle
+// @depends (none — uses EPSILON constant)
+// @included_by light_sampling_functions
+
 export const shape_intersection_functions = /* glsl */`
 
 	// Finds the point where the ray intersects the plane defined by u and v and checks if this point

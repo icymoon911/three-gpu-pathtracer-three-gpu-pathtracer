@@ -1,3 +1,9 @@
+// @module equirect_functions
+// @description Environment map sampling: uniform, importance (CDF-based), PDF.
+// @provides sampleEquirectColor, equirectDirectionPdf, sampleEquirect, sampleEquirectProbability
+// @depends util_functions (equirectDirectionToUv, equirectUvToDirection), equirect_struct (envMapInfo)
+// @included_by PhysicalPathTracingMaterial, direct_light_contribution_function
+
 export const equirect_functions = /* glsl */`
 
 	// samples the the given environment map in the given direction

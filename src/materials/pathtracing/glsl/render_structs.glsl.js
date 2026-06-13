@@ -1,3 +1,9 @@
+// @module render_structs
+// @description Core render-time structs: Ray, SurfaceHit, RenderState.
+// @provides Ray, SurfaceHit, RenderState, initRenderState
+// @depends material_struct (Material)
+// @included_by trace_scene_function, attenuate_hit_function, PhysicalPathTracingMaterial main()
+
 export const render_structs = /* glsl */`
 
 	struct Ray {

@@ -3,7 +3,8 @@ import { PathTracingSceneGenerator } from './PathTracingSceneGenerator.js';
 import { PathTracingRenderer } from './PathTracingRenderer.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { GradientEquirectTexture } from '../textures/GradientEquirectTexture.js';
-import { getIesTextures, getLights, getTextures } from './utils/sceneUpdateUtils.js';
+import { getIesTextures, getLights } from './utils/lightUtils.js';
+import { getTextures } from './utils/textureUtils.js';
 import { ClampedInterpolationMaterial } from '../materials/fullscreen/ClampedInterpolationMaterial.js';
 import { CubeToEquirectGenerator } from '../utils/CubeToEquirectGenerator.js';
 
