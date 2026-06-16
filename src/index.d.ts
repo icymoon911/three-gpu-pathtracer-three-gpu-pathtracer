@@ -108,6 +108,29 @@ export class DynamicPathTracingSceneGenerator extends PathTracingSceneGenerator 
  */
 export class PathTracingSceneWorker extends PathTracingSceneGenerator {}
 
+export interface ExportOptions {
+
+	format?: 'exr' | 'png' | 'raw';
+	minSamples?: number;
+	denoise?: boolean;
+	sigma?: number;
+	threshold?: number;
+	kSigma?: number;
+	type?: 'float' | 'half';
+	channels?: 3 | 4;
+	onProgress?: ( progress: number, stage: string ) => void;
+
+}
+
+export interface RenderExportResult {
+
+	data: ArrayBuffer | Float32Array;
+	width: number;
+	height: number;
+	format: string;
+
+}
+
 export class WebGLPathTracer {
 
 	constructor( renderer: WebGLRenderer );
@@ -164,6 +187,13 @@ export class WebGLPathTracer {
 	renderSample(): void;
 	reset(): void;
 	dispose(): void;
+
+	/**
+	 * Export the current path-traced render result. Waits until the accumulated
+	 * sample count reaches `minSamples`, optionally applies denoising, and
+	 * returns the result in the requested format ('exr', 'png', or 'raw').
+	 */
+	exportAsync( options?: ExportOptions ): Promise<RenderExportResult>;
 
 }
 
@@ -327,9 +357,18 @@ export class EXRExporter {
 	export( renderer: WebGLRenderer, renderTarget: WebGLRenderTarget, options?: {
 		type?: 'float' | 'half';
 		channels?: 3 | 4;
+		onProgress?: ( progress: number, stage: string ) => void;
 	} ): ArrayBuffer;
 
-	encodeEXR( pixels: Float32Array, width: number, height: number, numChannels?: 3 | 4, useHalf?: boolean ): ArrayBuffer;
+	encodeEXR(
+		pixels: Float32Array,
+		width: number,
+		height: number,
+		numChannels?: 3 | 4,
+		useHalf?: boolean,
+		onProgress?: ( progress: number, stage: string ) => void,
+	): ArrayBuffer;
+
 	createDownloadURL( exrData: ArrayBuffer ): string;
 	download( exrData: ArrayBuffer, filename?: string ): void;
 

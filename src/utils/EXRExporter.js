@@ -82,7 +82,7 @@ export class EXRExporter {
 
 	constructor() {
 
-		this.type = 'float'; // 'float' or 'half'
+		this.type = 'half'; // 'float' or 'half'
 
 	}
 
@@ -92,24 +92,37 @@ export class EXRExporter {
 	 * @param {WebGLRenderer} renderer - The WebGL renderer
 	 * @param {WebGLRenderTarget} renderTarget - The render target to export from
 	 * @param {Object} [options] - Export options
-	 * @param {string} [options.type='float'] - Pixel type: 'float' (32-bit) or 'half' (16-bit)
+	 * @param {string} [options.type='half'] - Pixel type: 'float' (32-bit) or 'half' (16-bit)
 	 * @param {number} [options.channels=4] - Number of channels (3 for RGB, 4 for RGBA)
+	 * @param {Function} [options.onProgress] - Progress callback (progress: number 0-1, stage: string)
 	 * @returns {ArrayBuffer} - The EXR file as an ArrayBuffer
 	 */
 	export( renderer, renderTarget, options = {} ) {
 
 		const type = options.type || this.type;
 		const numChannels = options.channels || 4;
+		const onProgress = options.onProgress || null;
 		const width = renderTarget.width;
 		const height = renderTarget.height;
 		const useHalf = type === 'half';
-		const bytesPerChannel = useHalf ? 2 : 4;
+
+		if ( onProgress ) onProgress( 0.0, 'readback' );
 
 		// read pixels from the render target
 		const pixelBuffer = new Float32Array( width * height * 4 );
 		renderer.readRenderTargetPixels( renderTarget, 0, 0, width, height, pixelBuffer );
 
-		return this.encodeEXR( pixelBuffer, width, height, numChannels, useHalf );
+		if ( onProgress ) onProgress( 0.1, 'encoding' );
+
+		const result = this.encodeEXR( pixelBuffer, width, height, numChannels, useHalf, ( p, stage ) => {
+
+			if ( onProgress ) onProgress( 0.1 + p * 0.9, stage || 'encoding' );
+
+		} );
+
+		if ( onProgress ) onProgress( 1.0, 'complete' );
+
+		return result;
 
 	}
 
@@ -121,52 +134,36 @@ export class EXRExporter {
 	 * @param {number} height - Image height
 	 * @param {number} [numChannels=4] - Number of channels (3 or 4)
 	 * @param {boolean} [useHalf=false] - Use half-precision floats
+	 * @param {Function} [onProgress] - Progress callback (progress: number 0-1, stage: string)
 	 * @returns {ArrayBuffer} - The EXR file as an ArrayBuffer
 	 */
-	encodeEXR( pixels, width, height, numChannels = 4, useHalf = false ) {
+	encodeEXR( pixels, width, height, numChannels = 4, useHalf = false, onProgress = null ) {
 
 		const bytesPerChannel = useHalf ? 2 : 4;
 		const channelType = useHalf ? EXR_HALF : EXR_FLOAT;
 		const channelNames = numChannels === 3 ? [ 'B', 'G', 'R' ] : [ 'A', 'B', 'G', 'R' ];
 		const sourceChannelMap = numChannels === 3 ? [ 2, 1, 0 ] : [ 3, 2, 1, 0 ]; // EXR stores channels alphabetically
 
-		// Calculate header size
-		// Magic (4) + Version (4) + attributes + header terminator (1)
-		const channelAttrSize =
-			1 + // null terminator for name "channels"
-			1 + // null terminator for type "chlist"
-			4 + // size field
-			channelNames.length * ( 1 + 4 + 4 + 4 + 4 ) + // channel entries
-			1; // final null terminator
+		if ( onProgress ) onProgress( 0.0, 'header' );
 
-		const boxAttrSize = ( name ) => {
+		// Helper: exact byte size of a writeAttribute call
+		// writeAttribute writes: name (null-term) + type (null-term) + 4-byte size + value
+		const attrSize = ( name, type, valueSize ) =>
+			( name.length + 1 ) + ( type.length + 1 ) + 4 + valueSize;
 
-			return name.length + 1 + // name
-				6 + 1 + // "Box2i" + null
-				4 + // size
-				16; // 4 ints
+		// Channel list value: per channel (name null-term + pixelType(4) + pLinear(1) + reserved(3) + xSampling(4) + ySampling(4)) + end null byte
+		const channelListValueSize = channelNames.length * ( 2 + 4 + 1 + 3 + 4 + 4 ) + 1;
 
-		};
-
-		const compressionAttrSize = 12 + 1 + 4 + 1; // name + type + size + value
-		const lineOrderAttrSize = 10 + 1 + 4 + 1;
-		const floatAttrs = [
-			{ name: 'pixelAspectRatio', size: 4 },
-			{ name: 'screenWindowWidth', size: 4 },
-		];
-		const v2fAttrs = [
-			{ name: 'screenWindowCenter', size: 8 },
-		];
-
-		// estimate header size (generous)
-		const headerSize = 8 + // magic + version
-			channelAttrSize +
-			compressionAttrSize +
-			boxAttrSize( 'dataWindow' ) +
-			boxAttrSize( 'displayWindow' ) +
-			lineOrderAttrSize +
-			floatAttrs.reduce( ( s, a ) => s + a.name.length + 1 + 6 + 1 + 4 + a.size, 0 ) +
-			v2fAttrs.reduce( ( s, a ) => s + a.name.length + 1 + 5 + 1 + 4 + a.size, 0 ) +
+		// Exact header size
+		const headerSize = 4 + 4 + // magic + version
+			attrSize( 'channels', 'chlist', channelListValueSize ) +
+			attrSize( 'compression', 'compression', 1 ) +
+			attrSize( 'dataWindow', 'box2i', 16 ) +
+			attrSize( 'displayWindow', 'box2i', 16 ) +
+			attrSize( 'lineOrder', 'lineOrder', 1 ) +
+			attrSize( 'pixelAspectRatio', 'float', 4 ) +
+			attrSize( 'screenWindowCenter', 'v2f', 8 ) +
+			attrSize( 'screenWindowWidth', 'float', 4 ) +
 			1; // header terminator
 
 		// Scanline offset table: 8 bytes per scanline
@@ -297,6 +294,8 @@ export class EXRExporter {
 		dataView.setUint8( offset, 0 );
 		offset ++;
 
+		if ( onProgress ) onProgress( 0.05, 'offsetTable' );
+
 		// Write scanline offset table
 		const offsetTableStart = offset;
 		let scanlineOffset = offset + offsetTableSize;
@@ -310,7 +309,10 @@ export class EXRExporter {
 
 		offset += offsetTableSize;
 
+		if ( onProgress ) onProgress( 0.1, 'scanlines' );
+
 		// Write scanline data
+		const progressInterval = Math.max( 1, Math.floor( height / 20 ) );
 		for ( let y = 0; y < height; y ++ ) {
 
 			// EXR stores scanlines from top to bottom (y=0 is top)
@@ -347,6 +349,13 @@ export class EXRExporter {
 					}
 
 				}
+
+			}
+
+			// Report progress periodically during scanline encoding
+			if ( onProgress && ( y % progressInterval === 0 || y === height - 1 ) ) {
+
+				onProgress( 0.1 + 0.9 * ( ( y + 1 ) / height ), 'scanlines' );
 
 			}
 
