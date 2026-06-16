@@ -260,6 +260,99 @@ export class EXRExporter {
 
 }
 
+export interface PresetData {
+
+	name: string;
+	version?: number;
+	camera?: {
+		position?: [ number, number, number ];
+		rotation?: [ number, number, number, string ];
+		fov?: number;
+		near?: number;
+		far?: number;
+		zoom?: number;
+		focusDistance?: number;
+		fStop?: number;
+		bokehSize?: number;
+		apertureBlades?: number;
+		apertureRotation?: number;
+		anamorphicRatio?: number;
+	};
+	pathTracer?: {
+		bounces?: number;
+		transmissiveBounces?: number;
+		filterGlossyFactor?: number;
+		renderScale?: number;
+		tiles?: [ number, number ];
+		minSamples?: number;
+		renderDelay?: number;
+		fadeDuration?: number;
+		stableNoise?: boolean;
+		multipleImportanceSampling?: boolean;
+	};
+	scene?: {
+		environmentIntensity?: number;
+		backgroundBlurriness?: number;
+		backgroundIntensity?: number;
+	};
+	denoise?: {
+		enabled?: boolean;
+		sigma?: number;
+		threshold?: number;
+		kSigma?: number;
+	};
+	export?: {
+		format?: 'exr' | 'png';
+		minSamples?: number;
+		includeAlpha?: boolean;
+	};
+
+}
+
+export interface BatchRenderOptions {
+
+	onProgress?: (
+		presetIndex: number,
+		presetName: string,
+		phase: 'restoring' | 'rendering' | 'waiting' | 'denoising' | 'exporting',
+		progress: number,
+		totalPresets: number
+	) => void;
+	renderSample?: () => void;
+
+}
+
+export interface BatchRenderResult {
+
+	presetName: string;
+	result: ExportResult;
+
+}
+
+export class PresetManager {
+
+	constructor( pathTracer: WebGLPathTracer, scene: Scene, camera: Camera );
+
+	readonly activePreset: string | null;
+
+	getPresetNames(): string[];
+	getPreset( name: string ): PresetData | null;
+
+	capture( name: string ): PresetData;
+	addPreset( presetData: PresetData ): void;
+	removePreset( name: string ): boolean;
+	restore( name: string ): PresetData | null;
+
+	exportJSON(): string;
+	importJSON( json: string ): string[];
+	downloadJSON( filename?: string ): void;
+	importFromFile( file: File ): Promise<string[]>;
+
+	batchRender( presetNames: string[], options?: BatchRenderOptions ): Promise<BatchRenderResult[]>;
+	downloadResults( results: BatchRenderResult[], prefix?: string ): void;
+
+}
+
 export interface DenoiseOptions {
 
 	sigma?: number;

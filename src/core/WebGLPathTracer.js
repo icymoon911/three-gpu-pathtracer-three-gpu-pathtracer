@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending, WebGLRenderTarget, RGBAFormat, FloatType } from 'three';
+import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending, WebGLRenderTarget, RGBAFormat, FloatType, NoToneMapping, LinearToneMapping, ReinhardToneMapping, CineonToneMapping, ACESFilmicToneMapping, AgXToneMapping, NeutralToneMapping } from 'three';
 import { PathTracingSceneGenerator } from './PathTracingSceneGenerator.js';
 import { PathTracingRenderer } from './PathTracingRenderer.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
@@ -1001,26 +1001,117 @@ export class WebGLPathTracer {
 
 			if ( onProgress ) onProgress( 'exporting', 0.3 );
 
+			// Use the renderer's current tone mapping and exposure
+			const toneMapping = renderer.toneMapping;
+			const exposure = renderer.toneMappingExposure;
+
 			// Convert to 8-bit RGBA
 			const uint8Buffer = new Uint8ClampedArray( pixelCount * 4 );
 			for ( let i = 0; i < pixelCount; i ++ ) {
 
 				const idx = i * 4;
-				// Simple tone mapping (Reinhard) and gamma correction
-				const r = floatBuffer[ idx ];
-				const g = floatBuffer[ idx + 1 ];
-				const b = floatBuffer[ idx + 2 ];
+				let r = floatBuffer[ idx ] * exposure;
+				let g = floatBuffer[ idx + 1 ] * exposure;
+				let b = floatBuffer[ idx + 2 ] * exposure;
 				const a = floatBuffer[ idx + 3 ];
 
-				// Reinhard tone mapping
-				const rTM = r / ( 1.0 + r );
-				const gTM = g / ( 1.0 + g );
-				const bTM = b / ( 1.0 + b );
+				// Apply the renderer's tone mapping
+				switch ( toneMapping ) {
 
-				// Gamma correction (sRGB)
-				uint8Buffer[ idx ] = Math.pow( rTM, 1.0 / 2.2 ) * 255;
-				uint8Buffer[ idx + 1 ] = Math.pow( gTM, 1.0 / 2.2 ) * 255;
-				uint8Buffer[ idx + 2 ] = Math.pow( bTM, 1.0 / 2.2 ) * 255;
+				case LinearToneMapping:
+					// Clamp only
+					r = Math.max( 0.0, r );
+					g = Math.max( 0.0, g );
+					b = Math.max( 0.0, b );
+					break;
+				case ReinhardToneMapping:
+					r = r / ( 1.0 + r );
+					g = g / ( 1.0 + g );
+					b = b / ( 1.0 + b );
+					break;
+				case CineonToneMapping: {
+
+					// Optimized filmic curve by Jim Hejl and Richard Burgess-Dawson
+					r = Math.max( 0.0, r - 0.004 );
+					g = Math.max( 0.0, g - 0.004 );
+					b = Math.max( 0.0, b - 0.004 );
+					r = ( r * ( 6.2 * r + 0.5 ) ) / ( r * ( 6.2 * r + 1.7 ) + 0.06 );
+					g = ( g * ( 6.2 * g + 0.5 ) ) / ( g * ( 6.2 * g + 1.7 ) + 0.06 );
+					b = ( b * ( 6.2 * b + 0.5 ) ) / ( b * ( 6.2 * b + 1.7 ) + 0.06 );
+					break;
+
+				}
+
+				case ACESFilmicToneMapping: {
+
+					// ACES filmic tone mapping approximation
+					const aAces = 2.51;
+					const bAces = 0.03;
+					const cAces = 2.43;
+					const dAces = 0.59;
+					const eAces = 0.14;
+					r = Math.max( 0.0, Math.min( 1.0, ( r * ( aAces * r + bAces ) ) / ( r * ( cAces * r + dAces ) + eAces ) ) );
+					g = Math.max( 0.0, Math.min( 1.0, ( g * ( aAces * g + bAces ) ) / ( g * ( cAces * g + dAces ) + eAces ) ) );
+					b = Math.max( 0.0, Math.min( 1.0, ( b * ( aAces * b + bAces ) ) / ( b * ( cAces * b + dAces ) + eAces ) ) );
+					break;
+
+				}
+
+				case AgXToneMapping: {
+
+					// AgX tone mapping (approximation)
+					r = Math.max( 0.0, r );
+					g = Math.max( 0.0, g );
+					b = Math.max( 0.0, b );
+					const agx = ( v ) => {
+
+						const x = Math.log2( v * 0.18 + 1.0 );
+						const s = x / ( 1.0 + x );
+						return s;
+
+					};
+
+					r = agx( r );
+					g = agx( g );
+					b = agx( b );
+					break;
+
+				}
+
+				case NeutralToneMapping: {
+
+					// Khronos neutral tone mapping
+					const startCompression = 0.8 - 0.04;
+					const desaturation = 0.15;
+					const xMin = startCompression;
+					const xMax = startCompression + 0.16;
+					const applyNeutral = ( v ) => {
+
+						if ( v <= xMin ) return v;
+						if ( v >= xMax ) return 1.0;
+						const t = ( v - xMin ) / ( xMax - xMin );
+						return xMin + ( xMax - xMin ) * ( t * t * ( 3 - 2 * t ) ) * ( 1.0 - desaturation ) + desaturation * t;
+
+					};
+
+					r = applyNeutral( r );
+					g = applyNeutral( g );
+					b = applyNeutral( b );
+					break;
+
+				}
+
+				case NoToneMapping:
+				default:
+					// No tone mapping
+					break;
+
+				}
+
+				// Gamma correction (linear to sRGB)
+				uint8Buffer[ idx ] = Math.pow( Math.min( r, 1.0 ), 1.0 / 2.2 ) * 255;
+				uint8Buffer[ idx + 1 ] = Math.pow( Math.min( g, 1.0 ), 1.0 / 2.2 ) * 255;
+				uint8Buffer[ idx + 2 ] = Math.pow( Math.min( b, 1.0 ), 1.0 / 2.2 ) * 255;
 				uint8Buffer[ idx + 3 ] = a * 255;
 
 			}
