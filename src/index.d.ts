@@ -158,6 +158,8 @@ export class WebGLPathTracer {
 	reset(): void;
 	dispose(): void;
 
+	exportAsync( options?: ExportOptions ): Promise<ExportResult>;
+
 }
 
 // objects
@@ -227,6 +229,62 @@ export class BlurredEnvMapGenerator {
 
 	generate( texture: Texture, blur: number ): DataTexture;
 	dispose(): void;
+
+}
+
+export interface EXRExportOptions {
+
+	x?: number;
+	y?: number;
+	width?: number;
+	height?: number;
+	includeAlpha?: boolean;
+	onProgress?: ( progress: number ) => void;
+
+}
+
+export class EXRExporter {
+
+	constructor();
+
+	compression: 'none' | 'zip';
+
+	export(
+		renderer: WebGLRenderer,
+		renderTarget: WebGLRenderTarget,
+		options?: EXRExportOptions
+	): Promise<ArrayBuffer>;
+
+	toBlob( exrData: ArrayBuffer ): Blob;
+	download( exrData: ArrayBuffer, filename?: string ): void;
+
+}
+
+export interface DenoiseOptions {
+
+	sigma?: number;
+	threshold?: number;
+	kSigma?: number;
+
+}
+
+export interface ExportOptions {
+
+	minSamples?: number;
+	format?: 'exr' | 'png';
+	denoise?: boolean;
+	denoiseOptions?: DenoiseOptions;
+	includeAlpha?: boolean;
+	onProgress?: ( phase: 'waiting' | 'denoising' | 'exporting', progress: number ) => void;
+
+}
+
+export interface ExportResult {
+
+	data: ArrayBuffer | Blob;
+	format: 'exr' | 'png';
+	samples: number;
+	denoised: boolean;
 
 }
 

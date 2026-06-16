@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending, Box3 } from 'three';
+import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending, WebGLRenderTarget, RGBAFormat, FloatType } from 'three';
 import { PathTracingSceneGenerator } from './PathTracingSceneGenerator.js';
 import { PathTracingRenderer } from './PathTracingRenderer.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
@@ -6,6 +6,8 @@ import { GradientEquirectTexture } from '../textures/GradientEquirectTexture.js'
 import { getIesTextures, getLights, getTextures } from './utils/sceneUpdateUtils.js';
 import { ClampedInterpolationMaterial } from '../materials/fullscreen/ClampedInterpolationMaterial.js';
 import { CubeToEquirectGenerator } from '../utils/CubeToEquirectGenerator.js';
+import { DenoiseMaterial } from '../materials/fullscreen/DenoiseMaterial.js';
+import { EXRExporter } from '../utils/EXRExporter.js';
 
 function supportsFloatBlending( renderer ) {
 
@@ -878,6 +880,208 @@ export class WebGLPathTracer {
 
 		this._queueReset = true;
 		this._pathTracer.samples = 0;
+
+	}
+
+	/**
+	 * Export the current render result to EXR or PNG format.
+	 * Waits for the specified number of samples to accumulate before exporting.
+	 * @param {Object} options - Export options
+	 * @param {number} [options.minSamples] - Minimum samples to wait for (defaults to current samples)
+	 * @param {string} [options.format='exr'] - Export format: 'exr' or 'png'
+	 * @param {boolean} [options.denoise=false] - Apply denoising before export
+	 * @param {Object} [options.denoiseOptions] - Denoise parameters
+	 * @param {number} [options.denoiseOptions.sigma=5.0] - Denoise sigma
+	 * @param {number} [options.denoiseOptions.threshold=0.03] - Denoise threshold
+	 * @param {number} [options.denoiseOptions.kSigma=1.0] - Denoise kSigma
+	 * @param {boolean} [options.includeAlpha=false] - Include alpha channel in export
+	 * @param {Function} [options.onProgress] - Progress callback (phase: string, progress: 0-1)
+	 * @returns {Promise<{data: ArrayBuffer|Blob, format: string, samples: number, denoised: boolean}>}
+	 */
+	async exportAsync( options = {} ) {
+
+		const {
+			minSamples = this.samples,
+			format = 'exr',
+			denoise = false,
+			denoiseOptions = {},
+			includeAlpha = false,
+			onProgress = null,
+		} = options;
+
+		// Wait for minimum samples
+		while ( this.samples < minSamples ) {
+
+			if ( onProgress ) onProgress( 'waiting', this.samples / minSamples );
+			await new Promise( resolve => setTimeout( resolve, 100 ) );
+
+		}
+
+		if ( onProgress ) onProgress( 'waiting', 1.0 );
+
+		const renderer = this._renderer;
+		const pathTracer = this._pathTracer;
+
+		// Get the appropriate render target based on alpha mode
+		const sourceTarget = pathTracer.target;
+		const width = sourceTarget.width;
+		const height = sourceTarget.height;
+
+		// Optionally apply denoising
+		let exportTarget = sourceTarget;
+		let denoiseQuad = null;
+
+		if ( denoise ) {
+
+			if ( onProgress ) onProgress( 'denoising', 0.0 );
+
+			// Create temporary render target for denoised output
+			exportTarget = new WebGLRenderTarget( width, height, {
+				format: RGBAFormat,
+				type: FloatType,
+			} );
+
+			// Create denoise material and quad
+			const denoiseMaterial = new DenoiseMaterial( {
+				map: sourceTarget.texture,
+				sigma: denoiseOptions.sigma ?? 5.0,
+				threshold: denoiseOptions.threshold ?? 0.03,
+				kSigma: denoiseOptions.kSigma ?? 1.0,
+			} );
+
+			denoiseQuad = new FullScreenQuad( denoiseMaterial );
+
+			// Render denoised result
+			const prevRenderTarget = renderer.getRenderTarget();
+			const prevAutoClear = renderer.autoClear;
+
+			renderer.setRenderTarget( exportTarget );
+			renderer.autoClear = true;
+			denoiseQuad.render( renderer );
+
+			renderer.setRenderTarget( prevRenderTarget );
+			renderer.autoClear = prevAutoClear;
+
+			if ( onProgress ) onProgress( 'denoising', 1.0 );
+
+		}
+
+		// Export based on format
+		let result;
+
+		if ( format === 'exr' ) {
+
+			if ( onProgress ) onProgress( 'exporting', 0.0 );
+
+			const exporter = new EXRExporter();
+			const exrData = await exporter.export( renderer, exportTarget, {
+				includeAlpha,
+				onProgress: ( progress ) => {
+
+					if ( onProgress ) onProgress( 'exporting', progress );
+
+				},
+			} );
+
+			result = {
+				data: exrData,
+				format: 'exr',
+				samples: this.samples,
+				denoised: denoise,
+			};
+
+		} else if ( format === 'png' ) {
+
+			if ( onProgress ) onProgress( 'exporting', 0.0 );
+
+			// Read pixels and convert to PNG
+			const pixelCount = width * height;
+			const floatBuffer = new Float32Array( pixelCount * 4 );
+			renderer.readRenderTargetPixels( exportTarget, 0, 0, width, height, floatBuffer );
+
+			if ( onProgress ) onProgress( 'exporting', 0.3 );
+
+			// Convert to 8-bit RGBA
+			const uint8Buffer = new Uint8ClampedArray( pixelCount * 4 );
+			for ( let i = 0; i < pixelCount; i ++ ) {
+
+				const idx = i * 4;
+				// Simple tone mapping (Reinhard) and gamma correction
+				const r = floatBuffer[ idx ];
+				const g = floatBuffer[ idx + 1 ];
+				const b = floatBuffer[ idx + 2 ];
+				const a = floatBuffer[ idx + 3 ];
+
+				// Reinhard tone mapping
+				const rTM = r / ( 1.0 + r );
+				const gTM = g / ( 1.0 + g );
+				const bTM = b / ( 1.0 + b );
+
+				// Gamma correction (sRGB)
+				uint8Buffer[ idx ] = Math.pow( rTM, 1.0 / 2.2 ) * 255;
+				uint8Buffer[ idx + 1 ] = Math.pow( gTM, 1.0 / 2.2 ) * 255;
+				uint8Buffer[ idx + 2 ] = Math.pow( bTM, 1.0 / 2.2 ) * 255;
+				uint8Buffer[ idx + 3 ] = a * 255;
+
+			}
+
+			if ( onProgress ) onProgress( 'exporting', 0.6 );
+
+			// Create canvas and convert to PNG blob
+			const canvas = document.createElement( 'canvas' );
+			canvas.width = width;
+			canvas.height = height;
+			const ctx = canvas.getContext( '2d' );
+
+			// Flip vertically (WebGL coordinates to canvas)
+			const flippedData = new Uint8ClampedArray( uint8Buffer.length );
+			for ( let y = 0; y < height; y ++ ) {
+
+				const srcRow = ( height - 1 - y ) * width * 4;
+				const dstRow = y * width * 4;
+				flippedData.set( uint8Buffer.slice( srcRow, srcRow + width * 4 ), dstRow );
+
+			}
+
+			const flippedImageData = new ImageData( flippedData, width, height );
+			ctx.putImageData( flippedImageData, 0, 0 );
+
+			const pngBlob = await new Promise( ( resolve, reject ) => {
+
+				canvas.toBlob( ( blob ) => {
+
+					if ( blob ) resolve( blob );
+					else reject( new Error( 'Failed to create PNG blob' ) );
+
+				}, 'image/png' );
+
+			} );
+
+			if ( onProgress ) onProgress( 'exporting', 1.0 );
+
+			result = {
+				data: pngBlob,
+				format: 'png',
+				samples: this.samples,
+				denoised: denoise,
+			};
+
+		} else {
+
+			throw new Error( `Unsupported export format: ${ format }` );
+
+		}
+
+		// Cleanup temporary resources
+		if ( denoise ) {
+
+			denoiseQuad.material.dispose();
+			denoiseQuad.dispose();
+			exportTarget.dispose();
+
+		}
+
+		return result;
 
 	}
 
