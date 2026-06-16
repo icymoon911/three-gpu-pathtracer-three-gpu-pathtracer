@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending } from 'three';
+import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending, WebGLRenderTarget, RGBAFormat, UnsignedByteType, LinearFilter } from 'three';
 import { PathTracingSceneGenerator } from './PathTracingSceneGenerator.js';
 import { PathTracingRenderer } from './PathTracingRenderer.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
@@ -125,6 +125,7 @@ export class WebGLPathTracer {
 		this._previousEnvironment = null;
 		this._previousBackground = null;
 		this._internalBackground = null;
+		this._colorBackground = null;
 
 		// options
 		this.renderDelay = 100;
@@ -455,6 +456,12 @@ export class WebGLPathTracer {
 	_getLightHash( light ) {
 
 		let hash = light.uuid + ':' + light.intensity + ':' + light.color.getHex();
+
+		// include position so moving a light triggers a change
+		hash += ':p:' + light.position.x + ',' + light.position.y + ',' + light.position.z;
+
+		// include rotation (Euler) so re-aiming a SpotLight/DirectionalLight triggers a change
+		hash += ':r:' + light.rotation.x + ',' + light.rotation.y + ',' + light.rotation.z;
 
 		// Add shape information for ShapedAreaLight
 		if ( light.isRectAreaLight && 'isCircular' in light ) {
@@ -822,6 +829,109 @@ export class WebGLPathTracer {
 
 	}
 
+	async exportAsync( options = {} ) {
+
+		const {
+			toneMapping = null,
+			mimeType = 'image/png',
+			quality = 1.0,
+		} = options;
+
+		const renderer = this._renderer;
+		const pathTracer = this._pathTracer;
+		const quad = this._quad;
+
+		// save original state
+		const prevToneMapping = renderer.toneMapping;
+		const prevRenderTarget = renderer.getRenderTarget();
+		const prevSize = renderer.getSize( new Vector2() );
+		const prevPixelRatio = renderer.getPixelRatio();
+		const prevAutoClear = renderer.autoClear;
+
+		// determine output dimensions from the path tracer target
+		const targetSize = new Vector2();
+		pathTracer.getSize( targetSize );
+		const w = Math.floor( targetSize.x );
+		const h = Math.floor( targetSize.y );
+
+		// apply requested tone mapping (or keep renderer's current setting)
+		if ( toneMapping !== null ) {
+
+			renderer.toneMapping = toneMapping;
+
+		}
+
+		// create a temporary render target at the full resolution
+		const exportTarget = new WebGLRenderTarget( w, h, {
+			format: RGBAFormat,
+			type: UnsignedByteType,
+			magFilter: LinearFilter,
+			minFilter: LinearFilter,
+		} );
+
+		// configure the quad to sample from the path tracer output
+		quad.material.map = pathTracer.target.texture;
+		quad.material.opacity = 1;
+		quad.material.blending = NoBlending;
+
+		// render the tone-mapped result into the export target
+		renderer.setPixelRatio( 1 );
+		renderer.setSize( w, h, false );
+		renderer.setRenderTarget( exportTarget );
+		renderer.autoClear = true;
+		quad.render( renderer );
+
+		// read back pixels
+		const pixelBuffer = new Uint8Array( w * h * 4 );
+		renderer.readRenderTargetPixels( exportTarget, 0, 0, w, h, pixelBuffer );
+
+		// restore renderer state
+		renderer.setRenderTarget( prevRenderTarget );
+		renderer.setPixelRatio( prevPixelRatio );
+		renderer.setSize( prevSize.x, prevSize.y );
+		renderer.toneMapping = prevToneMapping;
+		renderer.autoClear = prevAutoClear;
+
+		// clean up temporary render target
+		exportTarget.dispose();
+
+		// flip vertically (WebGL framebuffer is bottom-up) and write to canvas
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = w;
+		canvas.height = h;
+		const ctx = canvas.getContext( '2d' );
+		const imageData = ctx.createImageData( w, h );
+		for ( let y = 0; y < h; y ++ ) {
+
+			const srcRow = ( h - 1 - y ) * w * 4;
+			const dstRow = y * w * 4;
+			imageData.data.set( pixelBuffer.subarray( srcRow, srcRow + w * 4 ), dstRow );
+
+		}
+
+		ctx.putImageData( imageData, 0, 0 );
+
+		// convert canvas to blob
+		return new Promise( ( resolve, reject ) => {
+
+			canvas.toBlob( blob => {
+
+				if ( blob ) {
+
+					resolve( blob );
+
+				} else {
+
+					reject( new Error( 'WebGLPathTracer: failed to export image.' ) );
+
+				}
+
+			}, mimeType, quality );
+
+		} );
+
+	}
+
 	reset() {
 
 		this._queueReset = true;
@@ -834,6 +944,45 @@ export class WebGLPathTracer {
 		this._quad.dispose();
 		this._quad.material.dispose();
 		this._pathTracer.dispose();
+
+		// dispose low-res path tracer render targets
+		if ( this._lowResPathTracer ) {
+
+			this._lowResPathTracer.dispose();
+
+		}
+
+		// dispose scene generator (BVH + geometry)
+		if ( this._generator ) {
+
+			if ( this._generator.bvh && this._generator.bvh.dispose ) {
+
+				this._generator.bvh.dispose();
+
+			}
+
+			if ( this._generator.geometry ) {
+
+				this._generator.geometry.dispose();
+
+			}
+
+		}
+
+		// dispose background textures
+		if ( this._internalBackground ) {
+
+			this._internalBackground.dispose();
+			this._internalBackground = null;
+
+		}
+
+		if ( this._colorBackground ) {
+
+			this._colorBackground.dispose();
+			this._colorBackground = null;
+
+		}
 
 	}
 

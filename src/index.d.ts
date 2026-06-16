@@ -164,6 +164,11 @@ export class WebGLPathTracer {
 	renderSample(): void;
 	reset(): void;
 	dispose(): void;
+	exportAsync( options?: {
+		toneMapping?: number | null;
+		mimeType?: string;
+		quality?: number;
+	} ): Promise<Blob>;
 
 }
 

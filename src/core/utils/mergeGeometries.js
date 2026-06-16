@@ -207,10 +207,26 @@ export function mergeGeometries( geometries, options = {}, targetGeometry = new 
 
 				if ( key === 'color' && targetAttribute.itemSize !== attr.itemSize ) {
 
-					// make sure the color attribute is aligned with itemSize 3 to 4
-					for ( let index = offset, l = attr.count; index < l; index ++ ) {
+					// Handle itemSize mismatch between source and target color attributes.
+					// Read from the source (attr) starting at 0, write to the target starting at offset.
+					// When target has itemSize 4 and source has 3, pad missing alpha with 1.0.
+					// When target has itemSize 3 and source has 4, truncate the alpha channel.
+					for ( let i = 0; i < attr.count; i ++ ) {
 
-						attr.setXYZW( index, targetAttribute.getX( index ), targetAttribute.getY( index ), targetAttribute.getZ( index ), 1.0 );
+						const r = attr.getX( i );
+						const g = attr.getY( i );
+						const b = attr.getZ( i );
+
+						if ( targetAttribute.itemSize >= 4 ) {
+
+							const a = attr.itemSize >= 4 ? attr.getW( i ) : 1.0;
+							targetAttribute.setXYZW( offset + i, r, g, b, a );
+
+						} else {
+
+							targetAttribute.setXYZ( offset + i, r, g, b );
+
+						}
 
 					}
 
