@@ -150,10 +150,17 @@ export class WebGLPathTracer {
 	): Promise<void>;
 	setCamera( camera: Camera ): void;
 
-	updateCamera(): void;
+	updateCamera( cameraOnly?: boolean ): void;
 	updateMaterials(): void;
 	updateLights(): void;
 	updateEnvironment(): void;
+	updateScene( options?: {
+		camera?: boolean;
+		lights?: boolean;
+		materials?: boolean;
+		environment?: boolean;
+		geometry?: boolean;
+	} ): 'none' | 'camera' | 'lights' | 'materials' | 'environment' | 'geometry' | 'all';
 	renderSample(): void;
 	reset(): void;
 	dispose(): void;

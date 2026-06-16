@@ -26,6 +26,7 @@ export class ProceduralEquirectTexture extends DataTexture {
 		);
 
 		this.generationCallback = null;
+		this._updateVersion = 0;
 
 	}
 
@@ -33,6 +34,7 @@ export class ProceduralEquirectTexture extends DataTexture {
 
 		this.dispose();
 		this.needsUpdate = true;
+		this._updateVersion ++;
 
 		const { data, width, height } = this.image;
 		for ( let x = 0; x < width; x ++ ) {
@@ -68,6 +70,7 @@ export class ProceduralEquirectTexture extends DataTexture {
 
 		super.copy( other );
 		this.generationCallback = other.generationCallback;
+		this._updateVersion = other._updateVersion || 0;
 		return this;
 
 	}

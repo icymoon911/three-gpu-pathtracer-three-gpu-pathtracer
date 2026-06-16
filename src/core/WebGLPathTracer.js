@@ -109,6 +109,7 @@ export class WebGLPathTracer {
 		this._queueReset = false;
 		this._clock = new Clock();
 		this._compilePromise = null;
+		this._cameraDOFOnlyChange = false;
 
 		this._lowResPathTracer = new PathTracingRenderer( renderer );
 		this._lowResPathTracer.tiles.set( 1, 1 );
@@ -199,6 +200,335 @@ export class WebGLPathTracer {
 
 	}
 
+	updateScene( options = {} ) {
+
+		const {
+			camera = false,
+			lights = false,
+			materials = false,
+			environment = false,
+			geometry = false,
+		} = options;
+
+		// If explicit changes are specified, apply them
+		if ( camera || lights || materials || environment || geometry ) {
+
+			return this._applyExplicitChanges( options );
+
+		}
+
+		// Otherwise, auto-detect changes
+		const changeType = this._detectChanges();
+		if ( changeType === 'none' ) {
+
+			return 'none';
+
+		}
+
+		if ( changeType === 'all' ) {
+
+			// Full scene rebuild needed - apply all updates with single reset at end
+			this.updateEnvironment();
+			this.updateLights();
+			this.updateMaterials();
+			this.reset();
+
+		} else if ( changeType === 'geometry' ) {
+
+			this.updateMaterials();
+			this.reset();
+
+		} else if ( changeType === 'materials' ) {
+
+			this.updateMaterials();
+			this.reset();
+
+		} else if ( changeType === 'lights' ) {
+
+			this.updateLights();
+			this.reset();
+
+		} else if ( changeType === 'environment' ) {
+
+			this.updateEnvironment();
+			this.reset();
+
+		} else if ( changeType === 'camera' ) {
+
+			// Check if it's DOF-only change (no position/orientation change)
+			if ( this._cameraDOFOnlyChange ) {
+
+				// DOF-only change: update camera uniforms without resetting samples
+				this.updateCamera( true );
+
+			} else {
+
+				// Full camera change: needs reset
+				this.updateCamera();
+
+			}
+
+		}
+
+		return changeType;
+
+	}
+
+	_applyExplicitChanges( options ) {
+
+		const {
+			camera = false,
+			lights = false,
+			materials = false,
+			environment = false,
+			geometry = false,
+		} = options;
+
+		let needsReset = false;
+
+		if ( environment ) {
+
+			this.updateEnvironment();
+			needsReset = true;
+
+		}
+
+		if ( lights ) {
+
+			this.updateLights();
+			needsReset = true;
+
+		}
+
+		if ( materials || geometry ) {
+
+			this.updateMaterials();
+			needsReset = true;
+
+		}
+
+		if ( camera ) {
+
+			this.updateCamera();
+			needsReset = true;
+
+		}
+
+		// Only reset once after all updates
+		if ( needsReset ) {
+
+			this.reset();
+
+		}
+
+		// Return the most significant change type
+		if ( geometry || materials ) return 'materials';
+		if ( environment ) return 'environment';
+		if ( lights ) return 'lights';
+		if ( camera ) return 'camera';
+		return 'none';
+
+	}
+
+	_detectChanges() {
+
+		const scene = this.scene;
+		const camera = this.camera;
+
+		if ( ! scene || ! camera ) return 'none';
+
+		// Check all change types and track the most expensive one
+		// Cost order: geometry > materials > environment > lights > camera
+		let mostExpensiveChange = 'none';
+
+		// Check material changes (expensive)
+		const materials = this._materials || [];
+		for ( const material of materials ) {
+
+			if ( material.needsUpdate ) {
+
+				mostExpensiveChange = 'materials';
+				break;
+
+			}
+
+		}
+
+		// Check environment changes (moderate to expensive)
+		if ( mostExpensiveChange !== 'materials' ) {
+
+			let environmentChanged = false;
+
+			if ( this._previousEnvironment !== scene.environment ) {
+
+				environmentChanged = true;
+
+			} else if ( scene.environment && scene.environment.isDataTexture ) {
+
+				// For ProceduralEquirectTexture, check version counter
+				const currentVersion = scene.environment._updateVersion || 0;
+				const previousVersion = this._previousEnvironmentVersion || 0;
+
+				if ( currentVersion !== previousVersion ) {
+
+					environmentChanged = true;
+
+				}
+
+			}
+
+			if ( environmentChanged ) {
+
+				mostExpensiveChange = 'environment';
+
+			}
+
+		}
+
+		// Check light changes (moderate)
+		if ( mostExpensiveChange !== 'materials' && mostExpensiveChange !== 'environment' ) {
+
+			const lights = getLights( scene );
+			for ( const light of lights ) {
+
+				const lightHash = this._getLightHash( light );
+				const prevHash = this._previousLightHashes?.get( light.uuid );
+
+				if ( lightHash !== prevHash ) {
+
+					mostExpensiveChange = 'lights';
+					break;
+
+				}
+
+			}
+
+		}
+
+		// Check camera changes (cheapest)
+		// Also track if it's DOF-only for optimization
+		let cameraDOFOnly = false;
+
+		if ( mostExpensiveChange === 'none' ) {
+
+			const cameraMatrixChanged = ! camera.matrixWorld.equals( this._previousCameraMatrix );
+			const cameraProjectionChanged = ! camera.projectionMatrix.equals( this._previousCameraProjection );
+
+			let cameraDOFChanged = false;
+			if ( camera.isPhysicalCamera ) {
+
+				const prevDOF = this._previousCameraDOF || {};
+				cameraDOFChanged = (
+					camera.fStop !== prevDOF.fStop ||
+					camera.focusDistance !== prevDOF.focusDistance ||
+					camera.apertureBlades !== prevDOF.apertureBlades ||
+					camera.anamorphicRatio !== prevDOF.anamorphicRatio
+				);
+
+			}
+
+			if ( cameraMatrixChanged || cameraProjectionChanged || cameraDOFChanged ) {
+
+				mostExpensiveChange = 'camera';
+
+				// Track if it's DOF-only
+				if ( cameraDOFChanged && ! cameraMatrixChanged && ! cameraProjectionChanged ) {
+
+					cameraDOFOnly = true;
+
+				}
+
+			}
+
+		}
+
+		// Store the DOF-only flag for use by updateScene()
+		this._cameraDOFOnlyChange = cameraDOFOnly;
+
+		// Update cached values for next comparison
+		this._updateChangeDetectionCache( camera, scene );
+
+		return mostExpensiveChange;
+
+	}
+
+	_getLightHash( light ) {
+
+		let hash = light.uuid + ':' + light.intensity + ':' + light.color.getHex();
+
+		// Add shape information for ShapedAreaLight
+		if ( light.isRectAreaLight && 'isCircular' in light ) {
+
+			hash += ':circular:' + light.isCircular;
+
+		}
+
+		// Add radius for PhysicalSpotLight
+		if ( light.isSpotLight && 'radius' in light ) {
+
+			hash += ':radius:' + light.radius;
+
+		}
+
+		return hash;
+
+	}
+
+	_updateChangeDetectionCache( camera, scene ) {
+
+		// Cache camera state
+		if ( ! this._previousCameraMatrix ) {
+
+			this._previousCameraMatrix = camera.matrixWorld.clone();
+			this._previousCameraProjection = camera.projectionMatrix.clone();
+
+		} else {
+
+			this._previousCameraMatrix.copy( camera.matrixWorld );
+			this._previousCameraProjection.copy( camera.projectionMatrix );
+
+		}
+
+		// Cache DOF parameters for PhysicalCamera
+		if ( camera.isPhysicalCamera ) {
+
+			this._previousCameraDOF = {
+				fStop: camera.fStop,
+				focusDistance: camera.focusDistance,
+				apertureBlades: camera.apertureBlades,
+				anamorphicRatio: camera.anamorphicRatio,
+			};
+
+		}
+
+		// Cache light hashes
+		const lights = getLights( scene );
+		if ( ! this._previousLightHashes ) {
+
+			this._previousLightHashes = new Map();
+
+		} else {
+
+			this._previousLightHashes.clear();
+
+		}
+
+		for ( const light of lights ) {
+
+			this._previousLightHashes.set( light.uuid, this._getLightHash( light ) );
+
+		}
+
+		// Cache environment reference and version
+		this._previousEnvironment = scene.environment;
+		if ( scene.environment && scene.environment.isDataTexture ) {
+
+			this._previousEnvironmentVersion = scene.environment._updateVersion || 0;
+
+		}
+
+	}
+
 	setCamera( camera ) {
 
 		this.camera = camera;
@@ -206,14 +536,20 @@ export class WebGLPathTracer {
 
 	}
 
-	updateCamera() {
+	updateCamera( cameraOnly = false ) {
 
 		const camera = this.camera;
 		camera.updateMatrixWorld();
 
 		this._pathTracer.setCamera( camera );
 		this._lowResPathTracer.setCamera( camera );
-		this.reset();
+
+		// If cameraOnly is true, skip the reset (useful for DOF-only changes)
+		if ( ! cameraOnly ) {
+
+			this.reset();
+
+		}
 
 	}
 
