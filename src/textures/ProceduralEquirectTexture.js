@@ -26,11 +26,13 @@ export class ProceduralEquirectTexture extends DataTexture {
 		);
 
 		this.generationCallback = null;
+		this._version = 0;
 
 	}
 
 	update() {
 
+		this._version ++;
 		this.dispose();
 		this.needsUpdate = true;
 

@@ -125,6 +125,15 @@ export class WebGLPathTracer {
 		this._previousBackground = null;
 		this._internalBackground = null;
 
+		// change detection hashes
+		this._previousCameraHash = '';
+		this._previousCameraPoseHash = '';
+		this._previousLightsHash = '';
+		this._previousMaterialsHash = '';
+		this._previousEnvironmentHash = '';
+		this._previousEnvVersion = 0;
+		this._previousBgVersion = 0;
+
 		// options
 		this.renderDelay = 100;
 		this.minSamples = 5;
@@ -208,16 +217,45 @@ export class WebGLPathTracer {
 
 	updateCamera() {
 
+		this._updateCameraInternal();
+		this.reset();
+
+	}
+
+	_updateCameraInternal() {
+
 		const camera = this.camera;
 		camera.updateMatrixWorld();
 
 		this._pathTracer.setCamera( camera );
 		this._lowResPathTracer.setCamera( camera );
-		this.reset();
+
+	}
+
+	updateCameraOnly( preserveSamples = false ) {
+
+		const camera = this.camera;
+		camera.updateMatrixWorld();
+
+		this._pathTracer.setCamera( camera );
+		this._lowResPathTracer.setCamera( camera );
+
+		if ( ! preserveSamples ) {
+
+			this.reset();
+
+		}
 
 	}
 
 	updateMaterials() {
+
+		this._updateMaterialsInternal();
+		this.reset();
+
+	}
+
+	_updateMaterialsInternal() {
 
 		const material = this._pathTracer.material;
 		const renderer = this._renderer;
@@ -230,11 +268,17 @@ export class WebGLPathTracer {
 		const textures = getTextures( materials );
 		material.textures.setTextures( renderer, textures, textureSize.x, textureSize.y );
 		material.materials.updateFrom( materials, textures );
-		this.reset();
 
 	}
 
 	updateLights() {
+
+		this._updateLightsInternal();
+		this.reset();
+
+	}
+
+	_updateLightsInternal() {
 
 		const scene = this.scene;
 		const renderer = this._renderer;
@@ -244,11 +288,17 @@ export class WebGLPathTracer {
 		const iesTextures = getIesTextures( lights );
 		material.lights.updateFrom( lights, iesTextures );
 		material.iesProfiles.setTextures( renderer, iesTextures );
-		this.reset();
 
 	}
 
 	updateEnvironment() {
+
+		this._updateEnvironmentInternal();
+		this.reset();
+
+	}
+
+	_updateEnvironmentInternal() {
 
 		const scene = this.scene;
 		const material = this._pathTracer.material;
@@ -308,7 +358,11 @@ export class WebGLPathTracer {
 		// update scene environment
 		material.environmentIntensity = scene.environment !== null ? ( scene.environmentIntensity ?? 1 ) : 0;
 		material.environmentRotation.makeRotationFromEuler( scene.environmentRotation ).invert();
-		if ( this._previousEnvironment !== scene.environment ) {
+
+		const envVersion = ( scene.environment && typeof scene.environment._version === 'number' ) ? scene.environment._version : 0;
+		const envChanged = this._previousEnvironment !== scene.environment || this._previousEnvVersion !== envVersion;
+
+		if ( envChanged ) {
 
 			if ( scene.environment !== null ) {
 
@@ -332,7 +386,7 @@ export class WebGLPathTracer {
 
 		this._previousEnvironment = scene.environment;
 		this._previousBackground = scene.background;
-		this.reset();
+		this._previousEnvVersion = envVersion;
 
 	}
 
@@ -374,10 +428,18 @@ export class WebGLPathTracer {
 		this.scene = scene;
 		this.camera = camera;
 
-		this.updateCamera();
-		this.updateMaterials();
-		this.updateEnvironment();
-		this.updateLights();
+		// use internal methods to avoid per-method resets; reset once at the end
+		this._updateCameraInternal();
+		this._updateMaterialsInternal();
+		this._updateEnvironmentInternal();
+		this._updateLightsInternal();
+		this.reset();
+
+		// invalidate change detection hashes so the next _detectChanges() picks up fresh state
+		this._previousCameraHash = '';
+		this._previousLightsHash = '';
+		this._previousMaterialsHash = '';
+		this._previousEnvironmentHash = '';
 
 		return results;
 
@@ -521,6 +583,292 @@ export class WebGLPathTracer {
 			}
 
 		}
+
+	}
+
+	_getCameraHash() {
+
+		const camera = this.camera;
+		const m = camera.matrixWorld.elements;
+		const p = camera.projectionMatrix.elements;
+		let hash = `m:${m[0]},${m[1]},${m[2]},${m[3]},${m[4]},${m[5]},${m[6]},${m[7]},${m[8]},${m[9]},${m[10]},${m[11]},${m[12]},${m[13]},${m[14]},${m[15]}` +
+			`|p:${p[0]},${p[5]},${p[10]},${p[11]},${p[14]},${p[15]}`;
+
+		// include PhysicalCamera DOF parameters
+		if ( camera.isPhysicalCamera || camera.fStop !== undefined ) {
+
+			hash += `|dof:${camera.fStop},${camera.focusDistance},${camera.apertureBlades},${camera.apertureRotation},${camera.anamorphicRatio}`;
+
+		}
+
+		return hash;
+
+	}
+
+	_getLightsHash() {
+
+		const scene = this.scene;
+		if ( ! scene ) return '';
+
+		const lights = getLights( scene );
+		const parts = [];
+		for ( let i = 0; i < lights.length; i ++ ) {
+
+			const l = lights[ i ];
+			let part = `${l.uuid}:${l.intensity}:${l.color.getHex()}`;
+
+			// include ShapedAreaLight shape
+			if ( l.isCircular !== undefined ) {
+
+				part += `:circ:${l.isCircular}`;
+
+			}
+
+			// include PhysicalSpotLight radius
+			if ( l.isSpotLight && l.radius !== undefined ) {
+
+				part += `:rad:${l.radius}`;
+
+			}
+
+			parts.push( part );
+
+		}
+
+		return parts.join( '|' );
+
+	}
+
+	_detectChanges() {
+
+		const changePriority = [ 'geometry', 'environment', 'materials', 'lights', 'camera' ];
+		const detected = new Set();
+
+		// camera check (includes DOF parameters for PhysicalCamera)
+		const cameraHash = this._getCameraHash();
+		if ( cameraHash !== this._previousCameraHash ) {
+
+			detected.add( 'camera' );
+
+		}
+
+		// lights check (includes ShapedAreaLight.isCircular and PhysicalSpotLight.radius)
+		const lightsHash = this._getLightsHash();
+		if ( lightsHash !== this._previousLightsHash ) {
+
+			detected.add( 'lights' );
+
+		}
+
+		// materials check
+		const materials = this._materials || [];
+		const materialsHash = materials.map( m => `${m.uuid}:${m.version}` ).join( '|' );
+		if ( materialsHash !== this._previousMaterialsHash ) {
+
+			detected.add( 'materials' );
+
+		}
+
+		// environment check (includes ProceduralEquirectTexture version tracking)
+		const scene = this.scene;
+		if ( scene ) {
+
+			const env = scene.environment;
+			const bg = scene.background;
+
+			let envHash = '';
+			let envVersion = 0;
+			if ( env ) {
+
+				envHash = env.uuid || env.source?.uuid || '';
+				envVersion = ( typeof env._version === 'number' ) ? env._version : 0;
+
+			}
+
+			let bgHash = '';
+			let bgVersion = 0;
+			if ( bg && ! bg.isColor ) {
+
+				bgHash = bg.uuid || bg.source?.uuid || '';
+				bgVersion = ( typeof bg._version === 'number' ) ? bg._version : 0;
+
+			} else if ( bg && bg.isColor ) {
+
+				bgHash = `color:${bg.getHex()}`;
+
+			}
+
+			const fullEnvHash = `${envHash}:${envVersion}:${bgHash}:${bgVersion}`;
+			if ( fullEnvHash !== this._previousEnvironmentHash ) {
+
+				detected.add( 'environment' );
+
+			}
+
+		}
+
+		// store updated hashes
+		this._previousCameraHash = cameraHash;
+		this._previousLightsHash = lightsHash;
+		this._previousMaterialsHash = materialsHash;
+
+		if ( scene ) {
+
+			const env = scene.environment;
+			const bg = scene.background;
+			let envHash = '';
+			let envVersion = 0;
+			if ( env ) {
+
+				envHash = env.uuid || env.source?.uuid || '';
+				envVersion = ( typeof env._version === 'number' ) ? env._version : 0;
+
+			}
+
+			let bgHash = '';
+			let bgVersion = 0;
+			if ( bg && ! bg.isColor ) {
+
+				bgHash = bg.uuid || bg.source?.uuid || '';
+				bgVersion = ( typeof bg._version === 'number' ) ? bg._version : 0;
+
+			} else if ( bg && bg.isColor ) {
+
+				bgHash = `color:${bg.getHex()}`;
+
+			}
+
+			this._previousEnvironmentHash = `${envHash}:${envVersion}:${bgHash}:${bgVersion}`;
+
+		}
+
+		if ( detected.size === 0 ) return 'none';
+
+		// return the most expensive (heaviest) change type so a single pass covers everything
+		for ( const type of changePriority ) {
+
+			if ( detected.has( type ) ) return type;
+
+		}
+
+		return 'none';
+
+	}
+
+	_applyExplicitChanges( changes ) {
+
+		if ( changes.environment ) {
+
+			this._updateEnvironmentInternal();
+
+		}
+
+		if ( changes.lights ) {
+
+			this._updateLightsInternal();
+
+		}
+
+		if ( changes.materials ) {
+
+			this._updateMaterialsInternal();
+
+		}
+
+		if ( changes.camera ) {
+
+			this._updateCameraInternal();
+
+		}
+
+		// single reset after all updates
+		this.reset();
+
+	}
+
+	updateScene( changes ) {
+
+		if ( changes ) {
+
+			this._applyExplicitChanges( changes );
+			const types = Object.keys( changes ).filter( k => changes[ k ] );
+			if ( types.length === 0 ) return 'none';
+
+			const priority = [ 'geometry', 'environment', 'materials', 'lights', 'camera' ];
+			for ( const t of priority ) {
+
+				if ( changes[ t ] ) return t;
+
+			}
+
+			return types[ 0 ];
+
+		}
+
+		// auto-detect
+		const changeType = this._detectChanges();
+
+		if ( changeType === 'none' ) {
+
+			return 'none';
+
+		}
+
+		if ( changeType === 'camera' ) {
+
+			// check if only DOF parameters changed (pose unchanged)
+			const camera = this.camera;
+			const m = camera.matrixWorld.elements;
+			const p = camera.projectionMatrix.elements;
+			const poseHash = `m:${m[0]},${m[1]},${m[2]},${m[3]},${m[4]},${m[5]},${m[6]},${m[7]},${m[8]},${m[9]},${m[10]},${m[11]},${m[12]},${m[13]},${m[14]},${m[15]}` +
+				`|p:${p[0]},${p[5]},${p[10]},${p[11]},${p[14]},${p[15]}`;
+			const prevPoseHash = this._previousCameraPoseHash || '';
+			this._previousCameraPoseHash = poseHash;
+
+			if ( poseHash === prevPoseHash ) {
+
+				// only DOF params changed - update camera without clearing accumulated samples
+				this.updateCameraOnly( true );
+				return 'camera';
+
+			}
+
+			// full camera update (pose changed)
+			this.updateCamera();
+			return 'camera';
+
+		}
+
+		// for any heavier change, run all relevant updates with a single reset at the end
+		if ( changeType === 'geometry' || changeType === 'all' ) {
+
+			// geometry change requires full scene rebuild
+			this.setScene( this.scene, this.camera );
+			return changeType;
+
+		}
+
+		// environment, materials, lights: run applicable updates without individual resets, then reset once
+		if ( changeType === 'environment' ) {
+
+			this._updateEnvironmentInternal();
+
+		}
+
+		if ( changeType === 'materials' || changeType === 'environment' ) {
+
+			this._updateMaterialsInternal();
+
+		}
+
+		if ( changeType === 'lights' || changeType === 'materials' || changeType === 'environment' ) {
+
+			this._updateLightsInternal();
+
+		}
+
+		this.reset();
+		return changeType;
 
 	}
 

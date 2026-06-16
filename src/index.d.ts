@@ -151,9 +151,17 @@ export class WebGLPathTracer {
 	setCamera( camera: Camera ): void;
 
 	updateCamera(): void;
+	updateCameraOnly( preserveSamples?: boolean ): void;
 	updateMaterials(): void;
 	updateLights(): void;
 	updateEnvironment(): void;
+	updateScene( changes?: {
+		camera?: boolean;
+		lights?: boolean;
+		materials?: boolean;
+		environment?: boolean;
+		geometry?: boolean;
+	} ): 'none' | 'camera' | 'lights' | 'materials' | 'environment' | 'geometry';
 	renderSample(): void;
 	reset(): void;
 	dispose(): void;
