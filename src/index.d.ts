@@ -163,6 +163,7 @@ export class WebGLPathTracer {
 		geometry?: boolean;
 	} ): 'none' | 'camera' | 'lights' | 'materials' | 'environment' | 'geometry';
 	renderSample(): void;
+	exportAsync( options?: { type?: string; quality?: number } ): Promise<string>;
 	reset(): void;
 	dispose(): void;
 

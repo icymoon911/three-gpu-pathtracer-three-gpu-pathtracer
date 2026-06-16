@@ -190,7 +190,32 @@ export function mergeGeometries( geometries, options = {}, targetGeometry = new 
 		const key = attributes[ i ];
 		if ( ! targetGeometry.getAttribute( key ) ) {
 
-			const firstAttr = geometries[ 0 ].getAttribute( key );
+			let firstAttr = geometries[ 0 ].getAttribute( key );
+
+			// for color attributes, use the max itemSize across all geometries to avoid data loss
+			if ( key === 'color' ) {
+
+				let maxItemSize = firstAttr.itemSize;
+				for ( let g = 1, gl = geometries.length; g < gl; g ++ ) {
+
+					const gAttr = geometries[ g ].getAttribute( key );
+					if ( gAttr && gAttr.itemSize > maxItemSize ) {
+
+						maxItemSize = gAttr.itemSize;
+
+					}
+
+				}
+
+				if ( maxItemSize !== firstAttr.itemSize ) {
+
+					const cons = firstAttr.array.constructor;
+					firstAttr = new BufferAttribute( new cons( maxItemSize * totalAttributeCount ), maxItemSize, firstAttr.normalized );
+
+				}
+
+			}
+
 			targetGeometry.setAttribute( key, createAttributeClone( firstAttr, totalAttributeCount ) );
 			forceUpdateAttr = true;
 
@@ -207,10 +232,21 @@ export function mergeGeometries( geometries, options = {}, targetGeometry = new 
 
 				if ( key === 'color' && targetAttribute.itemSize !== attr.itemSize ) {
 
-					// make sure the color attribute is aligned with itemSize 3 to 4
-					for ( let index = offset, l = attr.count; index < l; index ++ ) {
+					// make sure the color attribute is aligned between different itemSizes
+					const srcItemSize = attr.itemSize;
+					const dstItemSize = targetAttribute.itemSize;
+					for ( let j = 0, c = attr.count; j < c; j ++ ) {
 
-						attr.setXYZW( index, targetAttribute.getX( index ), targetAttribute.getY( index ), targetAttribute.getZ( index ), 1.0 );
+						const r = attr.getX( j );
+						const g = srcItemSize >= 2 ? attr.getY( j ) : 0;
+						const b = srcItemSize >= 3 ? attr.getZ( j ) : 0;
+						const a = srcItemSize >= 4 ? attr.getW( j ) : 1.0;
+
+						const idx = offset + j;
+						targetAttribute.setX( idx, r );
+						if ( dstItemSize >= 2 ) targetAttribute.setY( idx, g );
+						if ( dstItemSize >= 3 ) targetAttribute.setZ( idx, b );
+						if ( dstItemSize >= 4 ) targetAttribute.setW( idx, a );
 
 					}
 

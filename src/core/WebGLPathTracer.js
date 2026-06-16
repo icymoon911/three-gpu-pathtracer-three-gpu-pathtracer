@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending } from 'three';
+import { PerspectiveCamera, Scene, Vector2, Clock, NormalBlending, NoBlending, AdditiveBlending, WebGLRenderTarget, RGBAFormat, UnsignedByteType } from 'three';
 import { PathTracingSceneGenerator } from './PathTracingSceneGenerator.js';
 import { PathTracingRenderer } from './PathTracingRenderer.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
@@ -548,6 +548,83 @@ export class WebGLPathTracer {
 
 	}
 
+	async exportAsync( options = {} ) {
+
+		const { type = 'image/png', quality = 1.0 } = options;
+
+		const renderer = this._renderer;
+		const pathTracer = this._pathTracer;
+		const quad = this._quad;
+
+		const texture = pathTracer.target.texture;
+		const w = texture.image ? texture.image.width : texture.width;
+		const h = texture.image ? texture.image.height : texture.height;
+
+		// set up the quad with the path tracer output
+		quad.material.map = texture;
+		quad.material.opacity = 1;
+
+		// create a temporary UByte render target for the export (8-bit per channel, suitable for PNG)
+		const exportTarget = new WebGLRenderTarget( w, h, {
+			format: RGBAFormat,
+			type: UnsignedByteType,
+		} );
+
+		// save previous state
+		const prevRenderTarget = renderer.getRenderTarget();
+		const prevAutoClear = renderer.autoClear;
+
+		// render the quad (ClampedInterpolationMaterial respects the renderer's tone mapping setting
+		// via three.js's built-in TONE_MAPPING shader chunk)
+		renderer.setRenderTarget( exportTarget );
+		renderer.autoClear = false;
+		renderer.clear();
+		quad.render( renderer );
+
+		// read pixels
+		const pixelBuffer = new Uint8Array( w * h * 4 );
+		renderer.readRenderTargetPixels( exportTarget, 0, 0, w, h, pixelBuffer );
+
+		// restore state
+		renderer.setRenderTarget( prevRenderTarget );
+		renderer.autoClear = prevAutoClear;
+
+		// clean up
+		exportTarget.dispose();
+
+		// flip vertically (WebGL origin is bottom-left, canvas/images are top-left)
+		const rowSize = w * 4;
+		const tempRow = new Uint8Array( rowSize );
+		for ( let y = 0, halfH = Math.floor( h / 2 ); y < halfH; y ++ ) {
+
+			const topOffset = y * rowSize;
+			const bottomOffset = ( h - 1 - y ) * rowSize;
+			tempRow.set( pixelBuffer.subarray( topOffset, topOffset + rowSize ) );
+			pixelBuffer.copyWithin( topOffset, bottomOffset, bottomOffset + rowSize );
+			pixelBuffer.set( tempRow, bottomOffset );
+
+		}
+
+		// create blob from pixel data
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = w;
+		canvas.height = h;
+		const ctx = canvas.getContext( '2d' );
+		const imageData = new ImageData( new Uint8ClampedArray( pixelBuffer ), w, h );
+		ctx.putImageData( imageData, 0, 0 );
+
+		return new Promise( ( resolve, reject ) => {
+
+			canvas.toBlob(
+				blob => blob ? resolve( URL.createObjectURL( blob ) ) : reject( new Error( 'WebGLPathTracer: failed to create blob' ) ),
+				type,
+				quality,
+			);
+
+		} );
+
+	}
+
 	reset() {
 
 		this._queueReset = true;
@@ -560,6 +637,37 @@ export class WebGLPathTracer {
 		this._quad.dispose();
 		this._quad.material.dispose();
 		this._pathTracer.dispose();
+		this._lowResPathTracer.dispose();
+
+		if ( this._generator ) {
+
+			if ( this._generator.bvh ) {
+
+				this._generator.bvh.dispose();
+
+			}
+
+			if ( this._generator.geometry ) {
+
+				this._generator.geometry.dispose();
+
+			}
+
+		}
+
+		if ( this._internalBackground ) {
+
+			this._internalBackground.dispose();
+			this._internalBackground = null;
+
+		}
+
+		if ( this._colorBackground ) {
+
+			this._colorBackground.dispose();
+			this._colorBackground = null;
+
+		}
 
 	}
 
@@ -615,7 +723,12 @@ export class WebGLPathTracer {
 		for ( let i = 0; i < lights.length; i ++ ) {
 
 			const l = lights[ i ];
-			let part = `${l.uuid}:${l.intensity}:${l.color.getHex()}`;
+			l.updateMatrixWorld();
+
+			const m = l.matrixWorld.elements;
+			let part = `${l.uuid}:${l.intensity}:${l.color.getHex()}` +
+				`:p:${m[12]},${m[13]},${m[14]}` +
+				`:r:${m[0]},${m[1]},${m[2]},${m[4]},${m[5]},${m[6]},${m[8]},${m[9]},${m[10]}`;
 
 			// include ShapedAreaLight shape
 			if ( l.isCircular !== undefined ) {
